@@ -86,17 +86,19 @@
     $$('#nav a').forEach(a => a.classList.toggle('on', a.dataset.s === 's-' + h));
     if (h === 'library') renderLibrary();
   }
-  /* 最近一场结果：现场 → localStorage → 桥（磁盘） */
+  /* 最近一场结果：现场 → 桥（磁盘，在线时权威） → localStorage（离线兜底） */
   async function ensureLastResult() {
-    if (S.lastResult) return S.lastResult;
-    S.lastResult = lsGet('gp_last', null);
     if (S.lastResult) return S.lastResult;
     if (bridgeOn) {
       try {
         const r = await fetch(BRIDGE + '/latest');
-        if (r.ok) { S.lastResult = await r.json(); lsSet('gp_last', S.lastResult); }
+        if (r.ok) {
+          const s = await r.json();
+          if (s) { S.lastResult = s; lsSet('gp_last', s); return s; }
+        }
       } catch (e) { }
     }
+    S.lastResult = lsGet('gp_last', null);
     return S.lastResult;
   }
 
