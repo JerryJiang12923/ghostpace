@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>卷灵</title>
+<link rel="stylesheet" href="style.css?v=1786372179">
+</head>
+<body>
+
+<!-- 卷库 -->
+<section class="screen" id="s-library">
+  <div class="greet">卷 灵<small>GHOSTPAPER</small></div>
+  <div class="netline"><span class="dot off" id="bridgeDot"></span> <span id="netTxt">本地桥检测中…</span></div>
+  <div class="sec">待 战 卷</div>
+  <div id="paperList"></div>
+</section>
+
+<!-- 赛前 -->
+<section class="screen" id="s-brief">
+  <div class="brief-head">
+    <span class="tag red" id="briefTag">科目</span>
+    <h2 id="briefTitle">—</h2>
+  </div>
+  <div class="stat-row">
+    <div class="stat"><b class="num" id="bStatN">–</b><span>题目</span></div>
+    <div class="stat"><b class="num" id="bStatT">–</b><span>幽灵预测完卷</span></div>
+    <div class="stat"><b class="num" id="bStatAvg">–</b><span>题均</span></div>
+  </div>
+  <div class="qmap">
+    <div class="lbl"><span>逐题预估 · 等高条</span><span>深色 = 难题</span></div>
+    <div class="qbars" id="qbars"></div>
+  </div>
+  <div class="sec">幽 灵 档 位</div>
+  <div class="levels">
+    <button class="level" data-lv="0.85">轻松<small>×0.85 · 找信心</small></button>
+    <button class="level sel" data-lv="1.0">标准<small>×1.0 · 势均力敌</small></button>
+    <button class="level" data-lv="1.15">挑战<small>×1.15 · 燃烧</small></button>
+  </div>
+  <button class="btn btn-primary" id="btnStart" style="padding:18px 0;margin-top:auto">开 卷</button>
+</section>
+
+<!-- 赛中 -->
+<section class="screen" id="s-race">
+  <div class="race-top">
+    <div class="elapsed num" id="elapsed">0:00</div>
+    <div class="target">幽灵预计完卷<br><span class="num" id="ghostEta">–</span></div>
+  </div>
+  <div class="track-wrap">
+    <div class="track">
+      <div class="ticks" id="ticks"></div>
+      <div class="marker you" id="mkYou" style="left:0%"><em>你</em><i></i></div>
+      <div class="marker ghost" id="mkGhost" style="left:0%"><em class="num" id="mkGhostQ"></em><i></i></div>
+    </div>
+  </div>
+  <div class="glimpse">
+    <span id="glimpseTxt">幽灵尚未动笔</span>
+    <span class="stale" id="glimpseAge"></span>
+  </div>
+  <div class="behind even" id="behind">蓄势</div>
+  <div class="race-mid">
+    <div class="qno num" id="qno">1</div>
+    <div class="qtype" id="qtype"></div>
+  </div>
+  <button class="done-btn" id="btnDone">✓ 写完这题<small id="btnDoneSub"></small></button>
+  <div class="race-sub">
+    <button class="btn btn-ghost" id="btnSkip">跳题 →</button>
+    <button class="btn btn-ghost" id="btnPause">❚❚ 暂停</button>
+  </div>
+</section>
+
+<!-- 结算 -->
+<section class="screen" id="s-result">
+  <div class="res-head">
+    <div class="seal" id="rSeal">胜</div>
+    <div><h2 id="rHead">—</h2><p id="rSub">—</p></div>
+  </div>
+  <div class="vs">
+    <div class="col me"><span>你</span><b class="num" id="rYou">–</b></div>
+    <div class="col gh"><span>幽灵</span><b class="num" id="rGhost">–</b></div>
+  </div>
+  <div class="qreview">
+    <div class="lbl">逐题对照 · 灰 = 预测　红 = 实际　金 = 超时</div>
+    <div id="rRows"></div>
+  </div>
+  <div class="replay mine" id="rMyReplay"></div>
+  <div class="replay" id="rReplay"></div>
+  <div class="res-actions">
+    <button class="btn btn-primary" id="btnAgain">再来一卷</button>
+    <button class="btn btn-ghost" id="btnBack">回卷库</button>
+  </div>
+</section>
+
+<div class="overlay" id="countdown"></div>
+<div class="overlay" id="pauseOv">
+  <div class="box">
+    <h2>暂 停</h2>
+    <p id="pauseWhy">幽灵也停下了</p>
+    <button class="btn btn-primary" id="btnResume" style="padding:16px 60px">继 续</button>
+  </div>
+</div>
+
+<nav id="nav">
+  <a href="#/library" data-s="s-library">卷库</a>
+  <a href="#/brief" data-s="s-brief">赛前</a>
+  <a href="#/race" data-s="s-race">赛中</a>
+  <a href="#/result" data-s="s-result">结算</a>
+</nav>
+
+<script src="papers.js?v=1786372179"></script>
+<script src="ghost.js?v=1786372179"></script>
+<script src="app.js?v=1786372179"></script>
+</body>
+</html>
