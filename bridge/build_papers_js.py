@@ -11,9 +11,13 @@ for f in sorted(glob.glob(os.path.join(ROOT, 'data/papers/*.json'))):
     with open(f) as fp:
         p = json.load(fp)
     # 基本校验
+    for k in ('id', 'title', 'subject', 'questions'):
+        assert k in p, f"{f} 缺字段 {k}"
     ns = [q['n'] for q in p['questions']]
     assert ns == list(range(1, len(ns) + 1)), f"{p['id']} 题号不连续: {ns}"
-    assert all(q['pred_sec'] > 0 for q in p['questions']), f"{p['id']} 存在 pred_sec<=0"
+    for q in p['questions']:
+        assert q.get('pred_sec', 0) > 0, f"{p['id']} 第{q.get('n')}题 pred_sec 缺失或<=0"
+        assert q.get('type') and q.get('difficulty'), f"{p['id']} 第{q.get('n')}题 缺 type/difficulty"
     papers.append(p)
 out = 'window.PAPERS_DATA = ' + json.dumps(papers, ensure_ascii=False) + ';\n'
 dst = os.path.join(ROOT, 'app/papers.js')
