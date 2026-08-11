@@ -11,7 +11,11 @@
 
   /* ---------- 音效（WebAudio，无资产文件） ---------- */
   let AC = null;
-  function ac() { if (!AC) { try { AC = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { } } return AC; }
+  function ac() {
+    if (!AC) { try { AC = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { } }
+    if (AC && AC.state === 'suspended') AC.resume(); // 暂停/切后台后会被挂起，借手势恢复
+    return AC;
+  }
   function sndClick() {
     const c = ac(); if (!c) return;
     const o = c.createOscillator(), g = c.createGain();
@@ -223,7 +227,7 @@
       else {
         clearInterval(cdi);
         cd.textContent = '开卷'; sndFlip();
-        setTimeout(() => { cd.classList.remove('on'); }, 650);
+        setTimeout(() => { cd.classList.remove('on'); }, 450);
         S.startWall = Date.now(); S.running = true;
         pushEv('start');
         S.glimpseAt = 20 + S.glimpseRng() * 40; // 第一瞥稍早
@@ -357,6 +361,7 @@
   }
   $('#btnResume').onclick = () => {
     if (!S.pausing) return;
+    ac();
     S.pausedAccum += Date.now() - S.pauseStart;
     S.pausing = false;
     pushEv('resume');
@@ -385,15 +390,32 @@
     renderResult(sess);
     go('result');
   }
+  /* 逐题用时 = 该题作为"当前题"的区间累加（跳题前后的两段都归它，不污染下一题） */
+  function attributeTimes(events, order) {
+    const acc = {};
+    let cur = order[0], ptr = 0, skipped = [], lastT = 0;
+    for (const e of events) {
+      if (cur != null && e.t > lastT) acc[cur] = (acc[cur] || 0) + (e.t - lastT);
+      lastT = e.t;
+      if (e.ev === 'done') {
+        if (ptr < order.length && order[ptr] === e.q) ptr++;
+        else skipped = skipped.filter(x => x !== e.q);
+        cur = ptr < order.length ? order[ptr] : (skipped[0] ?? null);
+      } else if (e.ev === 'skip') {
+        skipped.push(e.q); ptr++;
+        cur = ptr < order.length ? order[ptr] : (skipped[0] ?? null);
+      }
+    }
+    return acc;
+  }
   function buildSession() {
     const t = S.finishT;
+    const acc = attributeTimes(S.events, S.order);
     const per = [];
-    let prevT = 0;
     for (const e of S.events) {
       if (e.ev === 'done') {
         const q = S.paper.questions.find(x => x.n === e.q);
-        per.push({ n: e.q, pred_sec: Math.round(q.pred_sec * S.level), actual_sec: Math.round(e.t - prevT) });
-        prevT = e.t;
+        per.push({ n: e.q, pred_sec: Math.round(q.pred_sec * S.level), actual_sec: Math.round(acc[e.q] || 0) });
       }
     }
     return {
@@ -437,12 +459,6 @@
         <span class="t num">${fmt(r.pred_sec)} / ${fmt(r.actual_sec)}</span>`;
       wrap.appendChild(row);
     });
-    // 幽灵回放（取自存档，不依赖现场）
-    const notes = (sess.ghost && sess.ghost.notes) || [];
-    $('#rReplay').textContent = notes.length ? notes.join('；') + '。' : '幽灵本场顺风顺水，没有卡壳。';
-    // 你的本场回放
-    const mine = myNotes(sess);
-    $('#rMyReplay').textContent = mine.length ? mine.join('；') + '。' : '你本场节奏平稳，没有死磕。';
   }
   $('#btnAgain').onclick = () => { renderBrief(S.paper); go('brief'); };
   $('#btnBack').onclick = () => go('library');
@@ -483,27 +499,8 @@
     return true;
   }
 
-  /* 你的本场回放：与幽灵同一套规则，从真实事件流推导 */
-  function myNotes(sess) {
-    const out = [];
-    sess.result.per_q.forEach(r => {
-      if (r.actual_sec > r.pred_sec * 2.5) out.push(`第 ${r.n} 题死磕 ${fmt(r.actual_sec)}`);
-    });
-    (sess.events || []).forEach(e => {
-      if (e.ev === 'skip') out.push(`第 ${e.q} 题跳过，回头补做`);
-    });
-    const evs = sess.events || [];
-    for (let i = 0; i < evs.length; i++) {
-      if (evs[i].ev === 'pause' || evs[i].ev === 'auto_pause') {
-        const r = evs.slice(i + 1).find(x => x.ev === 'resume');
-        if (r) {
-          const sec = (new Date(r.wall) - new Date(evs[i].wall)) / 1000;
-          if (sec > 60) out.push(`暂停了 ${Math.round(sec / 60)} 分钟`);
-        }
-      }
-    }
-    return out;
-  }
+  /* 倒计时遮罩：点按可关（防冻结卡住） */
+  $('#countdown').onclick = () => $('#countdown').classList.remove('on');
 
   /* ---------- 调试把手（agent 用） ---------- */
   window.GP = {
