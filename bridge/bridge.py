@@ -4,12 +4,20 @@
 端点：GET /health → {"ok":true}
      POST /save  {"relpath":"sessions/xxx.json","data":{...}} → 落盘 data/<relpath>"""
 from http.server import BaseHTTPRequestHandler, HTTPServer
-import json, os, re, time
+import json, os, re, time, subprocess
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA = os.path.join(ROOT, 'data')
 SAFE = re.compile(r'^(sessions|profile)/[\w.-]+\.json$')
 PORT = int(os.environ.get('GP_PORT', '8756'))
+
+def _git_commit(msg):
+    """数据仓自动提交（落盘即存档）"""
+    try:
+        subprocess.run(['git', '-C', DATA, 'add', '-A'], capture_output=True, timeout=15)
+        subprocess.run(['git', '-C', DATA, 'commit', '-q', '-m', msg], capture_output=True, timeout=15)
+    except Exception:
+        pass
 
 class H(BaseHTTPRequestHandler):
     def _cors(self):
@@ -62,6 +70,7 @@ class H(BaseHTTPRequestHandler):
             os.makedirs(os.path.dirname(dst), exist_ok=True)
             with open(dst, 'w') as f:
                 json.dump(req.get('data'), f, ensure_ascii=False, indent=1)
+            _git_commit('session ' + os.path.basename(rel))
             body = json.dumps({"saved": True, "path": dst}).encode()
             self.send_response(200)
         except Exception as e:
