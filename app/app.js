@@ -502,6 +502,83 @@
   /* 倒计时遮罩：点按可关（防冻结卡住） */
   $('#countdown').onclick = () => $('#countdown').classList.remove('on');
 
+  /* ---------- 结算图导出（canvas 手绘，无外部依赖） ---------- */
+  $('#btnShot').onclick = () => {
+    if (!S.lastResult) return;
+    ac();
+    $('#shotImg').src = renderShot(S.lastResult);
+    $('#shotOv').classList.add('on');
+  };
+  $('#shotOv').onclick = () => $('#shotOv').classList.remove('on');
+
+  function renderShot(sess) {
+    const W = 750, pad = 44, rowH = 56;
+    const rows = sess.result.per_q;
+    const H = 342 + rows.length * rowH + 80;
+    const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+    const x = cv.getContext('2d');
+    const RED = '#e0563c', DIM = '#8d8474', INK = '#d9d2c2', FAINT = '#5d5546', GHOST = '#8ad8c6', GOLD = '#c8a24a';
+    const mono = 'ui-monospace,Menlo,monospace', serif = '"Songti SC",serif';
+    x.fillStyle = '#16120d'; x.fillRect(0, 0, W, H);
+    const g = x.createRadialGradient(W * .75, -60, 0, W * .75, -60, W);
+    g.addColorStop(0, 'rgba(200,162,74,.10)'); g.addColorStop(1, 'rgba(200,162,74,0)');
+    x.fillStyle = g; x.fillRect(0, 0, W, H);
+    function rr(px, py, w, h, r) {
+      x.beginPath(); x.moveTo(px + r, py);
+      x.arcTo(px + w, py, px + w, py + h, r); x.arcTo(px + w, py + h, px, py + h, r);
+      x.arcTo(px, py + h, px, py, r); x.arcTo(px, py, px + w, py, r); x.closePath();
+    }
+    let y = pad;
+    x.textBaseline = 'middle'; x.textAlign = 'left';
+    x.fillStyle = FAINT; x.font = '18px ' + mono;
+    x.fillText('卷灵 GHOSTPAPER', pad, y);
+    y += 56;
+    const win = sess.result.win;
+    x.save(); x.translate(pad + 46, y + 46); x.rotate(-0.13);
+    x.strokeStyle = win ? RED : DIM; x.lineWidth = 5; rr(-44, -44, 88, 88, 10); x.stroke();
+    x.fillStyle = win ? RED : DIM; x.font = '700 46px ' + serif; x.textAlign = 'center';
+    x.fillText(win ? '胜' : '负', 0, 2); x.restore(); x.textAlign = 'left';
+    const diff = Math.abs(sess.result.ghost_submit_sec - sess.result.your_total_sec);
+    x.fillStyle = INK; x.font = '40px ' + serif;
+    x.fillText((win ? '赢 ' : '输 ') + fmt(diff), pad + 128, y + 26);
+    const paper = paperById(sess.paper_id);
+    const lvName = { '0.85': '轻松', '1': '标准', '1.15': '挑战' }[String(sess.level)] || '标准';
+    x.fillStyle = DIM; x.font = '19px ' + serif;
+    x.fillText(`${paper ? paper.title : sess.paper_id} · ${lvName}档 · ${(sess.started_at || '').slice(0, 10)}`, pad + 128, y + 70);
+    y += 116;
+    const bw = (W - pad * 2 - 16) / 2;
+    [[pad, '你', sess.result.your_total_sec, RED], [pad + bw + 16, '幽灵', sess.result.ghost_submit_sec, GHOST]].forEach(b => {
+      x.fillStyle = '#211b14'; rr(b[0], y, bw, 100, 14); x.fill();
+      x.strokeStyle = b[3] + '66'; x.lineWidth = 1.5; rr(b[0], y, bw, 100, 14); x.stroke();
+      x.fillStyle = DIM; x.font = '16px ' + serif; x.textAlign = 'center';
+      x.fillText(b[1], b[0] + bw / 2, y + 26);
+      x.fillStyle = INK; x.font = '34px ' + mono;
+      x.fillText(fmt(b[2]), b[0] + bw / 2, y + 66);
+    });
+    x.textAlign = 'left';
+    y += 132;
+    x.fillStyle = FAINT; x.font = '15px ' + serif;
+    x.fillText('逐题 · 灰=预测 红=实际 金=超时', pad, y);
+    y += 30;
+    const mx = Math.max(...rows.map(r => Math.max(r.pred_sec, r.actual_sec)));
+    const barMaxW = W - pad * 2 - 150;
+    rows.forEach(r => {
+      x.fillStyle = DIM; x.font = '16px ' + mono;
+      x.fillText(String(r.n), pad, y + 16);
+      x.fillStyle = '#3a3123'; rr(pad + 44, y + 4, Math.max(2, r.pred_sec / mx * barMaxW), 7, 3); x.fill();
+      x.fillStyle = r.actual_sec > r.pred_sec * 1.4 ? GOLD : RED;
+      rr(pad + 44, y + 17, Math.max(2, r.actual_sec / mx * barMaxW), 7, 3); x.fill();
+      x.fillStyle = FAINT; x.font = '15px ' + mono; x.textAlign = 'right';
+      x.fillText(fmt(r.pred_sec) + ' / ' + fmt(r.actual_sec), W - pad, y + 16);
+      x.textAlign = 'left';
+      y += rowH;
+    });
+    y += 20;
+    x.fillStyle = FAINT; x.font = '15px ' + serif; x.textAlign = 'center';
+    x.fillText('卷灵 · 与幽灵赛跑', W / 2, y);
+    return cv.toDataURL('image/png');
+  }
+
   /* ---------- 调试把手（agent 用） ---------- */
   window.GP = {
     S, Ghost,
