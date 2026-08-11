@@ -133,7 +133,8 @@
   async function renderLibrary() {
     const hist = await loadHistory();
     const list = $('#paperList'); list.innerHTML = '';
-    (window.PAPERS_DATA || []).forEach(p => {
+    const papers = (window.PAPERS_DATA || []).slice().sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
+    papers.forEach(p => {
       const h = hist[p.id];
       const mins = Math.round(p.questions.reduce((s, q) => s + q.pred_sec, 0) / 60);
       const card = document.createElement('div');
@@ -518,7 +519,7 @@
     const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
     const x = cv.getContext('2d');
     const RED = '#e0563c', DIM = '#8d8474', INK = '#d9d2c2', FAINT = '#5d5546', GHOST = '#8ad8c6', GOLD = '#c8a24a';
-    const mono = 'ui-monospace,Menlo,monospace', serif = '"Songti SC",serif';
+    const mono = 'ui-monospace,Menlo,monospace', serif = '"PingFang SC",sans-serif';
     x.fillStyle = '#16120d'; x.fillRect(0, 0, W, H);
     const g = x.createRadialGradient(W * .75, -60, 0, W * .75, -60, W);
     g.addColorStop(0, 'rgba(200,162,74,.10)'); g.addColorStop(1, 'rgba(200,162,74,0)');
@@ -539,7 +540,7 @@
     x.fillStyle = win ? RED : DIM; x.font = '700 46px ' + serif; x.textAlign = 'center';
     x.fillText(win ? '胜' : '负', 0, 2); x.restore(); x.textAlign = 'left';
     const diff = Math.abs(sess.result.ghost_submit_sec - sess.result.your_total_sec);
-    x.fillStyle = INK; x.font = '40px ' + serif;
+    x.fillStyle = INK; x.font = '700 40px ' + serif;
     x.fillText((win ? '赢 ' : '输 ') + fmt(diff), pad + 128, y + 26);
     const paper = paperById(sess.paper_id);
     const lvName = { '0.85': '轻松', '1': '标准', '1.15': '挑战' }[String(sess.level)] || '标准';
