@@ -133,7 +133,7 @@
   async function renderLibrary() {
     const hist = await loadHistory();
     const list = $('#paperList'); list.innerHTML = '';
-    const papers = (window.PAPERS_DATA || []).slice().sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
+    const papers = (window.PAPERS_DATA || []).slice().sort((a, b) => (b.created_at || '').localeCompare(a.created_at || '') || b.id.localeCompare(a.id));
     papers.forEach(p => {
       const h = hist[p.id];
       const mins = Math.round(p.questions.reduce((s, q) => s + q.pred_sec, 0) / 60);
