@@ -81,7 +81,7 @@
   }
   function route() {
     let h = (location.hash || '#/library').replace('#/', '');
-    if (h === 'race' && !S.running) h = 'library';          // 没有在赛 → 回卷库
+    if (h === 'race' && !S.running && !S.starting) h = 'library'; // 没有在赛 → 回卷库（倒计时中 starting=true 不算误弹）
     if (h === 'brief' && !S.paper) h = 'library';           // 没选卷 → 回卷库
     if (h === 'result') {                                    // 结算永远展示最近一场
       ensureLastResult().then(s => { if (s) renderResult(s); else go('library'); });
@@ -185,7 +185,7 @@
   /* ---------- 比赛状态 ---------- */
   const S = {
     paper: null, ghost: null, seed: 0,
-    startWall: 0, pauseStart: 0, pausedAccum: 0, pausing: false,
+    startWall: 0, pauseStart: 0, pausedAccum: 0, pausing: false, starting: false,
     events: [], pointer: 0, order: [], skipped: [],
     glimpseAt: 0, lastGlimpse: -1, glimpseRng: null,
     timer: null, running: false, done: {}, finishT: null
@@ -218,6 +218,7 @@
     S.glimpseRng = (function (a) { return function () { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; })(S.seed ^ 0x9e3779b9);
     S.lastGlimpseShown = 0; S.lastGlimpse = -1;
     // 倒计时
+    S.starting = true;
     go('race');
     const cd = $('#countdown'); cd.classList.add('on');
     let n = 3;
@@ -229,6 +230,7 @@
         clearInterval(cdi);
         cd.textContent = '开卷'; sndFlip();
         setTimeout(() => { cd.classList.remove('on'); }, 450);
+        S.starting = false;
         S.startWall = Date.now(); S.running = true;
         pushEv('start');
         S.glimpseAt = 20 + S.glimpseRng() * 40; // 第一瞥稍早
