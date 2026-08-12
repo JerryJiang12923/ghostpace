@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>卷灵</title>
-<link rel="stylesheet" href="style.css?v=1786506991">
+<style>html{background:#16120d}</style><!-- 防白闪：完整 CSS 由下方引导注入 -->
 </head>
 <body>
 
@@ -110,8 +110,19 @@
   <a href="#/result" data-s="s-result">结算</a>
 </nav>
 
-<script src="papers.js?v=1786506991"></script>
-<script src="ghost.js?v=1786506991"></script>
-<script src="app.js?v=1786506991"></script>
+<script>
+// 运行期破缓存：子资源 URL 带毫秒戳，每次打开都是最新；本文件永不随构建变化
+(function () {
+  var t = Date.now();
+  var link = document.createElement('link');
+  link.rel = 'stylesheet'; link.href = 'style.css?t=' + t;
+  document.head.appendChild(link);
+  ['papers.js', 'ghost.js', 'app.js'].forEach(function (f) {
+    var s = document.createElement('script');
+    s.src = f + '?t=' + t; s.async = false;  // async=false 保证按序执行
+    document.body.appendChild(s);
+  });
+})();
+</script>
 </body>
 </html>

@@ -26,15 +26,4 @@ with open(dst, 'w') as fp:
 print(f'papers.js 已生成：{len(papers)} 份卷 → {dst}')
 if not papers:
     print('提示：卷库为空。可复制 examples/demo-paper.json 到 data/papers/ 体验演示卷，或按 docs/ 格式自建。')
-
-# WebView 缓存顽固：给 index.html 的子资源打上版本戳强制刷新
-import re, time
-idx_html = os.path.join(ROOT, 'app/index.html')
-with open(idx_html) as fp:
-    html = fp.read()
-v = str(int(time.time()))
-html = re.sub(r'(src|href)="(papers\.js|ghost\.js|app\.js|style\.css)(\?v=\d+)?"',
-              rf'\1="\2?v={v}"', html)
-with open(idx_html, 'w') as fp:
-    fp.write(html)
-print(f'index.html 版本戳 → v={v}')
+# 注：子资源缓存由 index.html 的运行期引导破戳（?t=Date.now()），构建期无需再碰 index.html
