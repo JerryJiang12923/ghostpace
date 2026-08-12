@@ -24,6 +24,8 @@ dst = os.path.join(ROOT, 'app/papers.js')
 with open(dst, 'w') as fp:
     fp.write(out)
 print(f'papers.js 已生成：{len(papers)} 份卷 → {dst}')
+if not papers:
+    print('提示：卷库为空。可复制 examples/demo-paper.json 到 data/papers/ 体验演示卷，或按 docs/ 格式自建。')
 
 # WebView 缓存顽固：给 index.html 的子资源打上版本戳强制刷新
 import re, time

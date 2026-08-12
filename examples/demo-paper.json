@@ -1,0 +1,20 @@
+{
+  "id": "demo-ghost-01",
+  "title": "演示卷 · 幽灵体验装",
+  "subject": "demo",
+  "grade": "通用",
+  "total_points": null,
+  "created_at": "2026-08-12T18:00:00+08:00",
+  "updated_at": "2026-08-12T18:00:00+08:00",
+  "source_notes": "演示卷：8 题约 10 分钟，心算+常识推理，难度梯度完整，用于快速体验和幽灵的竞速手感。",
+  "questions": [
+    {"n": 1, "type": "choice", "points": null, "stem": "17 × 6 = ?", "difficulty": "easy", "load": "心算", "pred_sec": 30},
+    {"n": 2, "type": "choice", "points": null, "stem": "光在真空中的速度最接近：A. 3×10⁶ m/s  B. 3×10⁸ m/s  C. 3×10¹⁰ m/s", "difficulty": "easy", "load": "常识", "pred_sec": 25},
+    {"n": 3, "type": "choice", "points": null, "stem": "一个数加上它的一半等于 24，这个数是？", "difficulty": "medium", "load": "方程", "pred_sec": 60},
+    {"n": 4, "type": "choice", "points": null, "stem": "把一根绳子对折三次后剪断，得到几段？", "difficulty": "medium", "load": "空间想象", "pred_sec": 75},
+    {"n": 5, "type": "choice", "points": null, "stem": "钟面上 3:15 时分针与时针的夹角是？", "difficulty": "hard", "load": "角度计算", "pred_sec": 110},
+    {"n": 6, "type": "choice", "points": null, "stem": "100 米赛跑你超过了第二名，你现在是第几名？", "difficulty": "medium", "load": "逻辑陷阱", "pred_sec": 50},
+    {"n": 7, "type": "solve", "points": null, "stem": "鸡兔同笼：头 35 个，脚 94 只。鸡兔各几只？（写出过程）", "difficulty": "hard", "load": "经典应用题", "pred_sec": 240},
+    {"n": 8, "type": "choice", "points": null, "stem": "1, 1, 2, 3, 5, 8, ? 下一个数", "difficulty": "easy", "load": "数列", "pred_sec": 30}
+  ]
+}

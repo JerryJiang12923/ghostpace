@@ -25,8 +25,9 @@ python3 bridge/bridge.py            # 本地桥：比赛数据落盘到 data/ses
 
 ## 建卷
 
-工具本身不含卷子。一张卷 = 一份逐题预估的 JSON（题型、难度、预估秒数、知识点），放进 `data/papers/` 再跑 `build_papers_js.py` 就会出现在卷库里。两种造法：
+工具本身不含卷子。一张卷 = 一份逐题预估的 JSON（题型、难度、预估秒数、知识点），放进 `data/papers/` 再跑 `build_papers_js.py` 就会出现在卷库里。三种造法：
 
+- **演示卷**：`cp examples/demo-paper.json data/papers/`——8 题约 10 分钟，直接体验和幽灵赛跑的手感
 - **AI 估时**：把卷子照片发给 AI agent，让它逐题预估生成 JSON——这是设计的主路径，规程见 [docs/维护手册.md](docs/维护手册.md)
 - **手写**：照 `docs/` 里的格式自己写
 
