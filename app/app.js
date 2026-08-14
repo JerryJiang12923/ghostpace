@@ -97,6 +97,12 @@
   });
   function route() {
     let h = (location.hash || '#/library').replace('#/', '');
+    // 深链：#/brief/<卷子id> 直达该卷赛前页（建卷 agent 给的入口链接）
+    const deep = h.match(/^brief\/(.+)$/);
+    if (deep) {
+      const p = paperById(decodeURIComponent(deep[1]));
+      if (p) { S.paper = p; h = 'brief'; } else h = 'library';
+    }
     if (h === 'race' && !S.running && !S.starting) h = 'library'; // 没有在赛 → 回卷库（倒计时中 starting=true 不算误弹）
     if (h === 'brief' && !S.paper) h = 'library';           // 没选卷 → 回卷库
     if (h === 'result') {                                    // 结算永远展示最近一场
