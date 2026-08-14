@@ -41,6 +41,12 @@
 
   /* ---------- 本地桥 ---------- */
   let bridgeOn = false;
+  function renderNetline() {
+    const pendN = lsGet(LS.pending, []).length;
+    $('#netTxt').textContent = bridgeOn
+      ? (pendN ? `本地桥在线 · ${pendN} 场补传中…` : '本地桥在线 · 数据直存')
+      : (pendN ? `本地桥离线 · ${pendN} 场待补传，桥恢复后自动上传` : '本地桥离线 · 数据暂存本机，赛后自动补传');
+  }
   async function bridgeHealth() {
     try {
       const ctl = new AbortController(); const to = setTimeout(() => ctl.abort(), 1500);
@@ -49,7 +55,7 @@
     } catch (e) { bridgeOn = false; }
     $('#bridgeDot').className = 'dot ' + (bridgeOn ? 'on' : 'off');
     $('#bridgeDot').title = bridgeOn ? '本地桥在线：数据直存' : '本地桥离线：数据暂存本机';
-    $('#netTxt').textContent = bridgeOn ? '本地桥在线 · 数据直存' : '本地桥离线 · 数据暂存本机，赛后自动补传';
+    renderNetline();
   }
   async function saveSession(sess) {
     // 本地兜底
@@ -72,6 +78,7 @@
       } catch (e) { left.push(s); }
     }
     lsSet(LS.pending, left);
+    renderNetline();
   }
 
   /* ---------- 路由 ---------- */
@@ -86,8 +93,15 @@
     if (h === 'result') {                                    // 结算永远展示最近一场
       ensureLastResult().then(s => { if (s) renderResult(s); else go('library'); });
     }
+    if (h === 'brief' && S.paper) renderBrief(S.paper);      // 底栏直达赛前也能渲染当前卷（已赛卷的重赛入口）
     screens.forEach(s => $('#s-' + s).classList.toggle('on', s === h));
-    $$('#nav a').forEach(a => a.classList.toggle('on', a.dataset.s === 's-' + h));
+    // 底栏：当前页高亮；不可用的暗掉并禁点
+    const canBrief = !!S.paper, canRace = S.running || S.starting, canResult = !!(S.lastResult || lsGet('gp_last', null));
+    $$('#nav a').forEach(a => {
+      const s = a.dataset.s;
+      a.classList.toggle('on', s === 's-' + h);
+      a.classList.toggle('off', (s === 's-brief' && !canBrief) || (s === 's-race' && !canRace) || (s === 's-result' && !canResult));
+    });
     if (h === 'library') renderLibrary();
   }
   /* 最近一场结果：现场 → 桥（磁盘，在线时权威） → localStorage（离线兜底） */

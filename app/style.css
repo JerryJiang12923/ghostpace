@@ -148,6 +148,7 @@ body{background:var(--bg);color:var(--ink);font-family:"Songti SC","STSongti-SC-
 #nav{position:fixed;left:0;right:0;bottom:0;height:calc(52px + env(safe-area-inset-bottom));padding-bottom:env(safe-area-inset-bottom);display:flex;background:rgba(22,18,13,.92);border-top:1px solid var(--line);backdrop-filter:blur(8px);z-index:9}
 #nav a{flex:1;display:flex;align-items:center;justify-content:center;text-decoration:none;color:var(--faint);font-size:12px;letter-spacing:.2em}
 #nav a.on{color:var(--ink)}
+#nav a.off{opacity:.28;pointer-events:none}
 #nav a.on::before{content:"";width:5px;height:5px;border-radius:50%;background:var(--red-hi);margin-right:6px;box-shadow:0 0 6px rgba(224,86,60,.8)}
 
 /* 横屏（比赛主形态） */
