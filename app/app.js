@@ -86,6 +86,15 @@
   function go(name) {
     location.hash = '#/' + name;
   }
+  // 底栏快速通道：手指按下即切屏，不等 click（WKWebView 的 <a> 点击要过手势判定，感知慢半拍）
+  $$('#nav a').forEach(a => {
+    a.addEventListener('pointerdown', e => {
+      if (a.classList.contains('off')) return;
+      e.preventDefault();
+      const target = a.getAttribute('href');
+      if (location.hash !== target) location.hash = target;
+    });
+  });
   function route() {
     let h = (location.hash || '#/library').replace('#/', '');
     if (h === 'race' && !S.running && !S.starting) h = 'library'; // 没有在赛 → 回卷库（倒计时中 starting=true 不算误弹）
@@ -160,8 +169,7 @@
     }
     return history();
   }
-  async function renderLibrary() {
-    const hist = await loadHistory();
+  function drawLibrary(hist) {
     const list = $('#paperList'); list.innerHTML = '';
     const papers = (window.PAPERS_DATA || []).slice().sort((a, b) => (b.created_at || '').localeCompare(a.created_at || '') || b.id.localeCompare(a.id));
     papers.forEach(p => {
@@ -185,6 +193,15 @@
     add.className = 'pcard new';
     add.textContent = '＋ 拍新卷（在聊天里发给 agent）';
     list.appendChild(add);
+  }
+  // 先按本地缓存秒渲，再等桥返回后刷新——切到卷库零等待；数据没变就不二次渲染（防闪）
+  let lastHistJSON = '';
+  async function renderLibrary() {
+    const cached = history();
+    lastHistJSON = JSON.stringify(cached);
+    drawLibrary(cached);
+    const fresh = await loadHistory();
+    if (JSON.stringify(fresh) !== lastHistJSON) drawLibrary(fresh);
   }
   function subjName(s) {
     return { math: '数学', chinese: '语文', english: '英语', physics: '物理', chemistry: '化学', biology: '生物', history: '历史', geography: '地理', politics: '政治' }[s] || s;
