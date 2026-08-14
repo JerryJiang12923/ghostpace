@@ -130,8 +130,8 @@ body{background:var(--bg);color:var(--ink);font-family:"Songti SC","STSongti-SC-
 .qr .bars{flex:1;display:flex;flex-direction:column;gap:3px}
 .qr .bar{height:5px;border-radius:3px}
 .qr .bar.pred{background:#3a3123}
-.qr .bar.act{background:var(--red);opacity:.85}
-.qr .bar.act.slow{background:var(--gold)}
+.qr .bar.act{background:var(--gold);opacity:.85}
+.qr .bar.act.slow{background:var(--red)}
 .qr .t{width:92px;text-align:right;color:var(--faint);font-size:11px}
 .replay{background:var(--ghost-dim);border:1px solid rgba(138,216,198,.25);border-radius:14px;padding:12px 14px;font-size:12px;color:var(--ghost);line-height:1.9;margin-bottom:18px}
 .replay::before{content:"幽灵本场回放 · ";color:var(--faint);font-size:10px;letter-spacing:.2em;display:block;margin-bottom:4px}

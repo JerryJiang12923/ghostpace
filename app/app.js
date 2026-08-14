@@ -13,7 +13,7 @@
   let AC = null;
   function ac() {
     if (!AC) { try { AC = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { } }
-    if (AC && AC.state === 'suspended') AC.resume(); // 暂停/切后台后会被挂起，借手势恢复
+    if (AC && (AC.state === 'suspended' || AC.state === 'interrupted')) AC.resume(); // iOS 打断会挂起，借手势恢复（interrupted 是 Safari 专有态）
     return AC;
   }
   function sndClick() {
@@ -561,15 +561,18 @@
     x.textAlign = 'left';
     y += 132;
     x.fillStyle = FAINT; x.font = '15px ' + serif;
-    x.fillText('逐题 · 灰=预测 红=实际 金=超时', pad, y);
+    x.fillText('逐题 · 灰=预测 金=实际 红=超时', pad, y);
     y += 30;
     const mx = Math.max(...rows.map(r => Math.max(r.pred_sec, r.actual_sec)));
-    const barMaxW = W - pad * 2 - 150;
+    // 时间栏宽度按最长文本实测量出，条区动态度让——双位数分钟不再被条尾遮字
+    x.font = '15px ' + mono;
+    const tColW = Math.max(...rows.map(r => x.measureText(fmt(r.pred_sec) + ' / ' + fmt(r.actual_sec)).width));
+    const barMaxW = W - pad * 2 - 60 - tColW;
     rows.forEach(r => {
       x.fillStyle = DIM; x.font = '16px ' + mono;
       x.fillText(String(r.n), pad, y + 16);
       x.fillStyle = '#3a3123'; rr(pad + 44, y + 4, Math.max(2, r.pred_sec / mx * barMaxW), 7, 3); x.fill();
-      x.fillStyle = r.actual_sec > r.pred_sec * 1.4 ? GOLD : RED;
+      x.fillStyle = r.actual_sec > r.pred_sec * 1.4 ? RED : GOLD;
       rr(pad + 44, y + 17, Math.max(2, r.actual_sec / mx * barMaxW), 7, 3); x.fill();
       x.fillStyle = FAINT; x.font = '15px ' + mono; x.textAlign = 'right';
       x.fillText(fmt(r.pred_sec) + ' / ' + fmt(r.actual_sec), W - pad, y + 16);
@@ -591,6 +594,7 @@
 
   /* ---------- 启动 ---------- */
   addEventListener('hashchange', route);
+  addEventListener('pointerdown', () => ac(), true); // 兜底：任何真实点击都尝试唤醒音频（iOS 只认手势）
   bridgeHealth().then(flushPending);
   setInterval(() => bridgeHealth().then(flushPending), 15000);
   if (!tryRestore()) route();
