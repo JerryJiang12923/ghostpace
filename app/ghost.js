@@ -5,10 +5,10 @@
 'use strict';
 window.Ghost = (function () {
   const P = {
-    rho: 0.7, formSd: 0.08, sigma: 0.18,
-    stallHard: 0.15, stallMid: 0.08, stallEasy: 0.03,
+    rho: 0.7, formSd: 0.12, sigma: 0.25,
+    stallHard: 0.20, stallMid: 0.12, stallEasy: 0.03,
     reviewP: 0.4, browseP: 0.6,
-    formLo: 0.78, formHi: 1.35,
+    formLo: 0.75, formHi: 1.45,
     warmupN: 2, warmupF: 1.08, slumpLo: 0.55, slumpHi: 0.75, slumpF: 1.10,
     checkLo: 0.03, checkHi: 0.08, tolLo: 0.92, tolHi: 1.08
   };
@@ -49,7 +49,7 @@ window.Ghost = (function () {
     // 使 submit 落在预测 ×(0.97~1.03)——逐题结构有机，总时长不失控。
     const pred = paper.questions.reduce((s, q) => s + q.pred_sec, 0) * level;
     const tRng = mulberry32((seed ^ 0x5bd1e995) >>> 0);
-    const target = pred * (0.97 + 0.06 * tRng());
+    const target = pred * (0.92 + 0.16 * tRng());  // 总量也带点脾气：±8% 带内漂移（用户要求"总量别太稳"）
     const raw = pass(paper, level, seed, 1);
     return pass(paper, level, seed, target / raw.submit);
   }
@@ -71,7 +71,10 @@ window.Ghost = (function () {
       form = 1 + P.rho * (form - 1) + randn(rng) * P.formSd;
       form = Math.min(P.formHi, Math.max(P.formLo, form));
       const prog = i / n;
-      const stage = i < P.warmupN ? P.warmupF : (prog >= P.slumpLo && prog <= P.slumpHi ? P.slumpF : 1);
+      // 低迷窗口每场随种子漂移（原固定 55%~75% 太可预测）
+      const slumpLo = 0.4 + ((seed >>> 3) % 100) / 100 * 0.25;
+      const slumpHi = slumpLo + 0.15 + ((seed >>> 7) % 100) / 100 * 0.2;
+      const stage = i < P.warmupN ? P.warmupF : (prog >= slumpLo && prog <= slumpHi ? P.slumpF : 1);
       let z = randn(rng); z = Math.max(-2.5, Math.min(2.5, z));
       let dur = q.pred_sec * level * form * stage * Math.exp(P.sigma * z) * mult;
       const sp = q.difficulty === 'hard' ? P.stallHard : q.difficulty === 'mid' ? P.stallMid : P.stallEasy;

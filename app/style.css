@@ -9,6 +9,7 @@
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;user-select:none}
 html,body{height:100%}
 body{background:var(--bg);color:var(--ink);font-family:"Songti SC","STSongti-SC-Regular",serif;overflow:hidden;
+  -webkit-text-size-adjust:100%;text-size-adjust:100%; /* 防横竖屏旋转时 iOS 自动放大字体 */
   background-image:radial-gradient(ellipse 120% 60% at 70% -10%,rgba(200,162,74,.05),transparent 60%),
                    radial-gradient(ellipse 100% 50% at 10% 110%,rgba(200,64,42,.04),transparent 60%)}
 .num{font-family:ui-monospace,"SF Mono",Menlo,monospace;font-variant-numeric:tabular-nums}
@@ -168,4 +169,17 @@ body{background:var(--bg);color:var(--ink);font-family:"Songti SC","STSongti-SC-
   #s-race .race-sub{grid-column:2;grid-row:6;margin-top:8px}
   #nav{height:44px}
   .res-head{margin:10px 4px 12px}
+  /* 结算页横屏：左列结论+小总分卡+按钮，右侧过程曲线撑高，逐题全区通栏 */
+  #s-result.on{display:grid !important;grid-template-columns:280px 1fr;gap:6px 20px;align-items:start}
+  #s-result .res-head{grid-column:1;grid-row:1;margin:2px 0 4px;gap:14px}
+  #s-result .res-head .seal{width:58px;height:58px;font-size:26px}
+  #s-result .res-head h2{font-size:20px}
+  #s-result .res-head p{font-size:11px;margin-top:4px}
+  #s-result .vs{grid-column:1;grid-row:2;gap:8px;margin:0}
+  #s-result .vs .col{padding:8px 6px;border-radius:12px}
+  #s-result .vs .col b{font-size:17px;margin-top:2px}
+  #s-result .res-actions{grid-column:1;grid-row:3;margin-top:10px;gap:8px}
+  #s-result .res-actions .btn{border-radius:12px;font-size:14px;padding:8px 10px}
+  #s-result .qreview.chart{grid-column:2;grid-row:1/4;margin-bottom:0}
+  #s-result .qreview:not(.chart){grid-column:1/3;grid-row:4}
 }

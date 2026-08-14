@@ -135,16 +135,20 @@
     return S.lastResult;
   }
 
-  // 已赛卷子：按卷取最新一场进结算；桥离线则回退本地缓存，再没有就回赛前
+  // 已赛卷子：按卷取最新一场进结算；看过的结果按卷缓存，桥离线也能回看
   async function showPaperResult(p) {
     S.paper = p;
     try {
       const r = await fetch(BRIDGE + '/session?paper=' + encodeURIComponent(p.id));
       const s = r.ok ? await r.json() : null;
-      if (s && s.result) { S.lastResult = s; lsSet('gp_last', s); renderResult(s); go('result'); return; }
+      if (s && s.result) {
+        S.lastResult = s; lsSet('gp_last', s);
+        const rc = lsGet('gp_results', {}); rc[p.id] = s; lsSet('gp_results', rc);
+        renderResult(s); go('result'); return;
+      }
     } catch (e) { }
-    const cached = lsGet('gp_last', null);
-    if (cached && cached.paper_id === p.id && cached.result) { S.lastResult = cached; renderResult(cached); go('result'); return; }
+    const cached = lsGet('gp_results', {})[p.id];
+    if (cached && cached.result) { S.lastResult = cached; renderResult(cached); go('result'); return; }
     renderBrief(p); go('brief');
   }
 
@@ -273,7 +277,7 @@
     S.order = qs.map(q => q.n); S.pointer = 0; S.skipped = []; S.done = {};
     S.events = []; S.pausedAccum = 0; S.pausing = false; S.finishT = null;
     S.glimpseRng = (function (a) { return function () { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; })(S.seed ^ 0x9e3779b9);
-    S.lastGlimpseShown = 0; S.lastGlimpse = -1;
+    S.lastGlimpseShown = 0; S.lastGlimpse = -1; S.ghostSubmitShown = false;
     // 倒计时
     S.starting = true;
     go('race');
@@ -336,19 +340,17 @@
     const cq = currentQ();
     const yourPos = (yourDone + (cq ? 0.5 : 0)) / n;
     $('#mkYou').style.left = (yourPos * 100) + '%';
-    // 幽灵（余光模式：只在 glimpse 时刻刷新显示）
+    // 幽灵（余光模式：只在 glimpse 时刻刷新显示；但交卷是考场公开事件，立即揭示）
     const gpos = Ghost.positionAt(S.ghost, n, t);
-    if (force || t >= S.glimpseAt) {
+    const justSubmitted = gpos.submitted && !S.ghostSubmitShown;
+    if (force || justSubmitted || t >= S.glimpseAt) {
       S.lastGlimpse = t;
       S.glimpseAt = t + 25 + S.glimpseRng() * 65;
+      if (gpos.submitted) S.ghostSubmitShown = true;
       const dispDone = gpos.done;
       const dispQ = dispDone < n ? (S.ghost.doneList[dispDone] ? S.ghost.doneList[dispDone].q : n) : n;
       $('#mkGhost').style.left = ((dispDone + gpos.frac) / n * 100) + '%';
       $('#mkGhostQ').textContent = gpos.submitted ? '✓' : dispQ;
-      // 翻页声：上一瞥到这一瞥之间的 flip 事件
-      const flips = S.ghost.events.filter(e => e.ev === 'flip' && e.t > S.lastGlimpseShown && e.t <= t).length;
-      if (flips > 0) sndFlip();
-      S.lastGlimpseShown = t;
       // 状态行
       if (gpos.submitted) {
         $('#glimpseTxt').innerHTML = '幽灵 <b>已交卷</b>';
@@ -438,6 +440,7 @@
     wakeLock(false);
     const sess = buildSession();
     S.lastResult = sess; lsSet('gp_last', sess);
+    const rc = lsGet('gp_results', {}); rc[sess.paper_id] = sess; lsSet('gp_results', rc);
     saveSession(sess);
     // 战绩
     const h = history();
@@ -483,7 +486,7 @@
       paper_id: S.paper.id, level: S.level, seed: S.seed,
       started_at: new Date(S.startWall).toISOString(),
       events: S.events,
-      ghost: { submit: +S.ghost.submit.toFixed(1), writeEnd: +S.ghost.writeEnd.toFixed(1), seedUsed: S.ghost.seedUsed, notes: Ghost.replayNotes(S.ghost) },
+      ghost: { submit: +S.ghost.submit.toFixed(1), writeEnd: +S.ghost.writeEnd.toFixed(1), seedUsed: S.ghost.seedUsed, notes: Ghost.replayNotes(S.ghost), doneList: S.ghost.doneList },
       result: {
         your_total_sec: Math.round(t),
         ghost_submit_sec: Math.round(S.ghost.submit),
@@ -504,6 +507,7 @@
     $('#rSub').textContent = `${paper ? paper.title : sess.paper_id} · 幽灵${lvName}档`;
     $('#rYou').textContent = fmt(sess.result.your_total_sec);
     $('#rGhost').textContent = fmt(sess.result.ghost_submit_sec);
+    renderRaceChart(sess);
     // 逐题
     const wrap = $('#rRows'); wrap.innerHTML = '';
     const mx = Math.max(...sess.result.per_q.map(r => Math.max(r.pred_sec, r.actual_sec)));
@@ -522,6 +526,48 @@
   }
   $('#btnAgain').onclick = () => { renderBrief(S.paper); go('brief'); };
   $('#btnBack').onclick = () => go('library');
+
+  /* 比赛过程折线：你 vs 幽灵的累计完成题数（幽灵按 seed 重放整局） */
+  function renderRaceChart(sess) {
+    const box = $('#rChart'); if (!box) return;
+    const n = sess.result.per_q.length;
+    const youT = sess.result.your_total_sec, ghT = sess.result.ghost_submit_sec;
+    const T = Math.max(youT, ghT, 1);
+    const you = [[0, 0]]; let c = 0;
+    (sess.events || []).forEach(e => { if (e.ev === 'done') { c++; you.push([e.t, c]); } });
+    you.push([youT, n]);
+    const ghost = [[0, 0]];
+    const stored = sess.ghost && sess.ghost.doneList;
+    if (stored && stored.length) {
+      stored.forEach((d, i) => ghost.push([d.t, i + 1]));  // 精确回放当场时间线
+    } else {
+      const paper = paperById(sess.paper_id);
+      if (paper && sess.ghost && sess.ghost.seedUsed != null) {
+        const g = Ghost.build(paper, sess.level, sess.ghost.seedUsed); // 旧session按seed重放（参数改版后形状近似）
+        g.doneList.forEach((d, i) => ghost.push([d.t, i + 1]));
+      }
+    }
+    ghost.push([ghT, n]);
+    const W = 340, H = 132, pl = 8, pr = 8, pt = 8, pb = 18;
+    const X = t => pl + (t / T) * (W - pl - pr);
+    const Y = k => pt + (1 - k / n) * (H - pt - pb);
+    const path = pts => {  // 中点二次贝塞尔：平滑且单调不超调
+      let d = `M ${X(pts[0][0]).toFixed(1)} ${Y(pts[0][1]).toFixed(1)}`;
+      for (let i = 1; i < pts.length - 1; i++)
+        d += ` Q ${X(pts[i][0]).toFixed(1)} ${Y(pts[i][1]).toFixed(1)} ${((X(pts[i][0]) + X(pts[i + 1][0])) / 2).toFixed(1)} ${((Y(pts[i][1]) + Y(pts[i + 1][1])) / 2).toFixed(1)}`;
+      d += ` L ${X(pts[pts.length - 1][0]).toFixed(1)} ${Y(pts[pts.length - 1][1]).toFixed(1)}`;
+      return d;
+    };
+    box.innerHTML = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;display:block">
+      <line x1="${pl}" y1="${Y(0)}" x2="${W - pr}" y2="${Y(0)}" stroke="#33291d"/>
+      <text x="${pl}" y="${H - 5}" fill="#5d5546" font-size="8">0</text>
+      <text x="${W - pr}" y="${H - 5}" fill="#5d5546" font-size="8" text-anchor="end">${fmt(T)}</text>
+      <path d="${path(ghost)}" fill="none" stroke="#8ad8c6" stroke-width="2" opacity=".8"/>
+      <path d="${path(you)}" fill="none" stroke="#c8a24a" stroke-width="2"/>
+      <circle cx="${X(ghT)}" cy="${Y(n)}" r="3" fill="#8ad8c6"/>
+      <circle cx="${X(youT)}" cy="${Y(n)}" r="3" fill="#c8a24a"/>
+    </svg>`;
+  }
 
   /* ---------- 中断恢复 ---------- */
   function persistActive() {
@@ -546,7 +592,7 @@
     S.events = a.events; S.pointer = a.pointer; S.order = a.order;
     S.skipped = a.skipped; S.done = a.done;
     S.glimpseRng = (function (x) { return function () { x |= 0; x = x + 0x6D2B79F5 | 0; let t = Math.imul(x ^ x >>> 15, 1 | x); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; })(S.seed ^ 0x9e3779b9);
-    S.lastGlimpseShown = 0; S.lastGlimpse = -1; S.glimpseAt = 0;
+    S.lastGlimpseShown = 0; S.lastGlimpse = -1; S.glimpseAt = 0; S.ghostSubmitShown = false;
     S.running = true;
     // 死时间兜底：无论页面被冻结/杀掉多久，恢复后时钟对齐到最后一个事件的时刻
     const lastT = S.events.length ? S.events[S.events.length - 1].t : 0;
@@ -574,9 +620,11 @@
   function renderShot(sess) {
     const W = 750, pad = 44, rowH = 56;
     const rows = sess.result.per_q;
-    const H = 342 + rows.length * rowH + 80;
-    const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+    const H = 342 + 180 + rows.length * rowH + 80;
+    const SC = 2; // 2 倍像素渲染，导出更清晰（布局坐标不变）
+    const cv = document.createElement('canvas'); cv.width = W * SC; cv.height = H * SC;
     const x = cv.getContext('2d');
+    x.scale(SC, SC);
     const RED = '#e0563c', DIM = '#8d8474', INK = '#d9d2c2', FAINT = '#5d5546', GHOST = '#8ad8c6', GOLD = '#c8a24a';
     const mono = 'ui-monospace,Menlo,monospace', serif = '"PingFang SC",sans-serif';
     x.fillStyle = '#16120d'; x.fillRect(0, 0, W, H);
@@ -617,6 +665,45 @@
     });
     x.textAlign = 'left';
     y += 132;
+    // 比赛过程折线（与结算屏同款：金=你 青=幽灵，幽灵优先用存储时间线）
+    {
+      const n = rows.length;
+      const youT = sess.result.your_total_sec, ghT = sess.result.ghost_submit_sec;
+      const T = Math.max(youT, ghT, 1);
+      const you = [[0, 0]]; let c = 0;
+      (sess.events || []).forEach(e => { if (e.ev === 'done') { c++; you.push([e.t, c]); } });
+      you.push([youT, n]);
+      const ghost = [[0, 0]];
+      const dl = sess.ghost && sess.ghost.doneList;
+      if (dl && dl.length) dl.forEach((d, i) => ghost.push([d.t, i + 1]));
+      else {
+        const pp = paperById(sess.paper_id);
+        if (pp && sess.ghost && sess.ghost.seedUsed != null)
+          Ghost.build(pp, sess.level, sess.ghost.seedUsed).doneList.forEach((d, i) => ghost.push([d.t, i + 1]));
+      }
+      ghost.push([ghT, n]);
+      x.fillStyle = FAINT; x.font = '15px ' + serif;
+      x.fillText('比赛过程 · 金=你 青=幽灵', pad, y + 4);
+      const cy0 = y + 20, ch = 116, cw = W - pad * 2;
+      const X = t => pad + (t / T) * cw;
+      const Y = k => cy0 + (1 - k / n) * ch;
+      const line = (pts, color, w) => {
+        x.strokeStyle = color; x.lineWidth = w; x.beginPath();
+        x.moveTo(X(pts[0][0]), Y(pts[0][1]));
+        for (let i = 1; i < pts.length - 1; i++)
+          x.quadraticCurveTo(X(pts[i][0]), Y(pts[i][1]), (X(pts[i][0]) + X(pts[i + 1][0])) / 2, (Y(pts[i][1]) + Y(pts[i + 1][1])) / 2);
+        x.lineTo(X(pts[pts.length - 1][0]), Y(pts[pts.length - 1][1]));
+        x.stroke();
+      };
+      x.strokeStyle = '#33291d'; x.lineWidth = 1;
+      x.beginPath(); x.moveTo(pad, Y(0)); x.lineTo(pad + cw, Y(0)); x.stroke();
+      line(ghost, GHOST, 2); line(you, GOLD, 2.5);
+      [[X(ghT), GHOST], [X(youT), GOLD]].forEach(d => { x.fillStyle = d[1]; x.beginPath(); x.arc(d[0], Y(n), 4, 0, 7); x.fill(); });
+      x.fillStyle = FAINT; x.font = '13px ' + mono;
+      x.fillText('0', pad, cy0 + ch + 14);
+      x.textAlign = 'right'; x.fillText(fmt(T), pad + cw, cy0 + ch + 14); x.textAlign = 'left';
+      y += 180;
+    }
     x.fillStyle = FAINT; x.font = '15px ' + serif;
     x.fillText('逐题 · 灰=预测 金=实际 红=超时', pad, y);
     y += 30;
