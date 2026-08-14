@@ -1,4 +1,4 @@
-/* 卷灵 GhostPaper · 主逻辑（v1） */
+/* 卷灵 GhostPace · 主逻辑（v1） */
 'use strict';
 (function () {
   const BRIDGE = 'http://127.0.0.1:8756';
@@ -106,6 +106,19 @@
     return S.lastResult;
   }
 
+  // 已赛卷子：按卷取最新一场进结算；桥离线则回退本地缓存，再没有就回赛前
+  async function showPaperResult(p) {
+    S.paper = p;
+    try {
+      const r = await fetch(BRIDGE + '/session?paper=' + encodeURIComponent(p.id));
+      const s = r.ok ? await r.json() : null;
+      if (s && s.result) { S.lastResult = s; lsSet('gp_last', s); renderResult(s); go('result'); return; }
+    } catch (e) { }
+    const cached = lsGet('gp_last', null);
+    if (cached && cached.paper_id === p.id && cached.result) { S.lastResult = cached; renderResult(cached); go('result'); return; }
+    renderBrief(p); go('brief');
+  }
+
   /* ---------- 卷库 ---------- */
   function paperById(id) { return (window.PAPERS_DATA || []).find(p => p.id === id); }
   /* 战绩合并：桥在线时以磁盘 sessions 为正主（跨入口一致），否则用本地缓存 */
@@ -117,10 +130,13 @@
           const rows = await r.json();
           const hist = {};
           rows.forEach(s => {
-            const h = hist[s.paper_id] || { wins: 0, losses: 0, best: null };
+            const h = hist[s.paper_id] || { wins: 0, losses: 0, best: null, last: null, lastId: '', lastDay: '' };
             if (s.win) h.wins++; else h.losses++;
             const diff = s.ghost - s.you;
             if (h.best == null || diff > h.best) h.best = diff;
+            // 完成日期取 session id 里的保存时刻（started_at 可能是中断恢复前的旧时间）
+            const day = s.id && s.id.length >= 10 ? s.id.slice(2, 6) + '-' + s.id.slice(6, 8) + '-' + s.id.slice(8, 10) : (s.started_at || '').slice(0, 10);
+            if ((s.id || '') >= (h.lastId || '')) { h.lastId = s.id || ''; h.last = diff; h.lastDay = day; }
             hist[s.paper_id] = h;
           });
           lsSet(LS.history, hist);
@@ -136,15 +152,19 @@
     const papers = (window.PAPERS_DATA || []).slice().sort((a, b) => (b.created_at || '').localeCompare(a.created_at || '') || b.id.localeCompare(a.id));
     papers.forEach(p => {
       const h = hist[p.id];
+      const raced = h && h.last != null;
       const mins = Math.round(p.questions.reduce((s, q) => s + q.pred_sec, 0) / 60);
       const card = document.createElement('div');
-      card.className = 'pcard';
+      card.className = 'pcard' + (raced ? ' done' : '');
       card.innerHTML =
-        `<div class="row1"><span class="tag red">${subjName(p.subject)}</span><span class="tag">${p.grade || ''}</span></div>
+        `<div class="row1"><span><span class="tag red">${subjName(p.subject)}</span> <span class="tag">${p.grade || ''}</span></span>${raced ? `<span class="seal ${h.last >= 0 ? 'w' : 'l'}">${h.last >= 0 ? '胜' : '负'}</span>` : ''}</div>
          <h3>${p.title}</h3>
          <div class="meta"><span><b class="num">${p.questions.length}</b> 题</span><span>预测 <b class="num">${mins} 分钟</b></span></div>
-         <div class="rec"><span>${h ? `战绩 ${h.wins} 胜 ${h.losses} 负` : '尚未挑战'}</span><span class="win">${h && h.best != null ? '最佳：' + (h.best >= 0 ? '领先' : '落后') + ' ' + fmt(Math.abs(h.best)) : '开赛 →'}</span></div>`;
-      card.onclick = () => { S.paper = p; renderBrief(p); go('brief'); };
+         <div class="rec"><span>${(() => {
+           if (!h || h.last == null) return (h && (h.wins + h.losses) > 0) ? '已完赛' : '尚未挑战';
+           return `已完赛 · ${h.last >= 0 ? '赢' : '输'} ${fmt(Math.abs(h.last))}`;
+         })()}</span><span>${h && h.lastDay ? h.lastDay.slice(5).replace('-', '/') : '开赛 →'}</span></div>`;
+      card.onclick = () => { S.paper = p; raced ? showPaperResult(p) : (renderBrief(p), go('brief')); };
       list.appendChild(card);
     });
     const add = document.createElement('div');
@@ -534,7 +554,7 @@
     let y = pad;
     x.textBaseline = 'middle'; x.textAlign = 'left';
     x.fillStyle = FAINT; x.font = '18px ' + mono;
-    x.fillText('卷灵 GHOSTPAPER', pad, y);
+    x.fillText('卷灵 GHOSTPACE', pad, y);
     y += 56;
     const win = sess.result.win;
     x.save(); x.translate(pad + 46, y + 46); x.rotate(-0.13);

@@ -2,6 +2,9 @@
 """卷灵本地桥：页面事件直存 data/。
 用法：python3 bridge/bridge.py  （建议后台：> /dev/null 2>&1 &）
 端点：GET /health → {"ok":true}
+     GET /list → 所有 session 摘要
+     GET /latest → 最新 session 全文
+     GET /session?paper=<id> → 该卷最新 session 全文
      POST /save  {"relpath":"sessions/xxx.json","data":{...}} → 落盘 data/<relpath>"""
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import json, os, re, time, subprocess
@@ -51,6 +54,23 @@ class H(BaseHTTPRequestHandler):
             if files:
                 with open(os.path.join(sdir, files[-1]), 'rb') as f:
                     body = f.read()
+        elif self.path.startswith('/session'):
+            from urllib.parse import urlparse, parse_qs
+            pid = (parse_qs(urlparse(self.path).query).get('paper') or [''])[0]
+            sdir = os.path.join(DATA, 'sessions')
+            best = None
+            if pid and os.path.isdir(sdir):
+                for fn in sorted(os.listdir(sdir)):
+                    if not fn.endswith('.json'):
+                        continue
+                    try:
+                        with open(os.path.join(sdir, fn), 'rb') as f:
+                            raw = f.read()
+                        if json.loads(raw).get('paper_id') == pid:
+                            best = raw  # 文件名有序，遍历完即最新
+                    except Exception:
+                        pass
+            body = best if best is not None else b'null'
         else:
             body = json.dumps({"ok": True, "ts": time.time()}).encode()
         self.send_response(200); self._cors()
