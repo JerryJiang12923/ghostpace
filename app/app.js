@@ -274,6 +274,7 @@
     S.paper = paper; S.level = lv;
     S.seed = parseInt(new Date().toISOString().slice(0, 10).replace(/-/g, ''), 10);
     S.ghost = Ghost.build(paper, lv, S.seed);
+    $('#ghostEta').textContent = fmt(S.ghost.predTotal); // 未见其影之前的初始估计=计划总量
     S.order = qs.map(q => q.n); S.pointer = 0; S.skipped = []; S.done = {};
     S.events = []; S.pausedAccum = 0; S.pausing = false; S.finishT = null;
     S.glimpseRng = (function (a) { return function () { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; })(S.seed ^ 0x9e3779b9);
@@ -335,14 +336,6 @@
     const n = S.paper.questions.length;
     const gpos = Ghost.positionAt(S.ghost, n, t);
     $('#elapsed').textContent = fmt(t);
-    // 幽灵预计完卷：按已完工题目的实际配速外推剩余（早期≈预测总量，越赛越贴近真实）
-    const predOf = {}; S.paper.questions.forEach(q => predOf[q.n] = q.pred_sec * S.level);
-    let predDone = 0;
-    for (let i = 0; i < gpos.done; i++) predDone += predOf[S.ghost.doneList[i].q] || 0;
-    const predTotal = S.ghost.predTotal || S.paper.questions.reduce((s, q) => s + q.pred_sec, 0) * S.level;
-    const shrink = predTotal / 3; // 强收缩：早期配速样本少，外推保守；完工越多越信任实际配速
-    const pace = (t + shrink) / (predDone + shrink);
-    $('#ghostEta').textContent = fmt(t + (predTotal - predDone) * pace);
     // 你
     const yourDone = Object.keys(S.done).length;
     const cq = currentQ();
@@ -356,6 +349,15 @@
       if (gpos.submitted) S.ghostSubmitShown = true;
       const dispDone = gpos.done;
       const dispQ = dispDone < n ? (S.ghost.doneList[dispDone] ? S.ghost.doneList[dispDone].q : n) : n;
+      // 幽灵预计完卷：只在"瞥见"时按所见进度外推（没见过就凭计划总量）——估计必须基于你看见的东西
+      {
+        const predOf = {}; S.paper.questions.forEach(q => predOf[q.n] = q.pred_sec * S.level);
+        let predDone = 0;
+        for (let i = 0; i < dispDone; i++) predDone += predOf[S.ghost.doneList[i].q] || 0;
+        const predTotal = S.ghost.predTotal;
+        const pace = (t + predTotal / 3) / (predDone + predTotal / 3); // 收缩：样本少时外推保守
+        $('#ghostEta').textContent = fmt(t + (predTotal - predDone) * pace);
+      }
       $('#mkGhost').style.left = ((dispDone + gpos.frac) / n * 100) + '%';
       $('#mkGhostQ').textContent = gpos.submitted ? '✓' : dispQ;
       // 状态行
@@ -593,6 +595,7 @@
     if (!p) { localStorage.removeItem(LS.active); return false; }
     S.paper = p; S.level = a.level; S.seed = a.seed;
     S.ghost = Ghost.build(p, a.level, a.seed);
+    $('#ghostEta').textContent = fmt(S.ghost.predTotal); // 恢复时先给计划总量，下一瞥再校准
     // 校验 seedUsed 一致（引擎确定性）
     S.startWall = a.startWall; S.pausedAccum = a.pausedAccum;
     S.pausing = true; S.pauseStart = Date.now(); // 一律以暂停态恢复
