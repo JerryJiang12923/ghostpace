@@ -332,16 +332,23 @@
   }
   function updateRaceUI(force) {
     const t = raceT();
-    $('#elapsed').textContent = fmt(t);
-    $('#ghostEta').textContent = fmt(S.ghost.submit);
     const n = S.paper.questions.length;
+    const gpos = Ghost.positionAt(S.ghost, n, t);
+    $('#elapsed').textContent = fmt(t);
+    // 幽灵预计完卷：按已完工题目的实际配速外推剩余（早期≈预测总量，越赛越贴近真实）
+    const predOf = {}; S.paper.questions.forEach(q => predOf[q.n] = q.pred_sec * S.level);
+    let predDone = 0;
+    for (let i = 0; i < gpos.done; i++) predDone += predOf[S.ghost.doneList[i].q] || 0;
+    const predTotal = S.ghost.predTotal || S.paper.questions.reduce((s, q) => s + q.pred_sec, 0) * S.level;
+    const shrink = predTotal / 3; // 强收缩：早期配速样本少，外推保守；完工越多越信任实际配速
+    const pace = (t + shrink) / (predDone + shrink);
+    $('#ghostEta').textContent = fmt(t + (predTotal - predDone) * pace);
     // 你
     const yourDone = Object.keys(S.done).length;
     const cq = currentQ();
     const yourPos = (yourDone + (cq ? 0.5 : 0)) / n;
     $('#mkYou').style.left = (yourPos * 100) + '%';
     // 幽灵（余光模式：只在 glimpse 时刻刷新显示；但交卷是考场公开事件，立即揭示）
-    const gpos = Ghost.positionAt(S.ghost, n, t);
     const justSubmitted = gpos.submitted && !S.ghostSubmitShown;
     if (force || justSubmitted || t >= S.glimpseAt) {
       S.lastGlimpse = t;
