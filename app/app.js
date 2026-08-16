@@ -220,6 +220,7 @@
   /* ---------- 赛前 ---------- */
   let level = 1.0;
   function renderBrief(p) {
+    $('#restartRow').style.display = 'none'; // 进赛前一律收起确认排
     $('#briefTitle').textContent = p.title;
     $('#briefTag').textContent = subjName(p.subject) + (p.grade ? ' · ' + p.grade : '');
     const tot = p.questions.reduce((s, q) => s + q.pred_sec, 0);
@@ -262,21 +263,17 @@
     persistActive();
   }
 
-  let armRestart = 0;
   $('#btnStart').onclick = () => {
     if (!S.paper) return;
-    // 比赛中重开：内联二次确认（WKWebView 没实现 confirm 面板，原生 confirm 会静默返回 false）
-    if (S.running && !S.finishT) {
-      if (Date.now() - armRestart > 3000) {
-        armRestart = Date.now();
-        const b = $('#btnStart'), old = b.textContent;
-        b.textContent = '放弃当前比赛？再点确认';
-        setTimeout(() => { b.textContent = old; }, 3000);
-        return;
-      }
-      armRestart = 0;
-    }
+    // 比赛中重开：分离确认（WKWebView 没有 confirm 面板；同键二次确认会被连点误触）
+    if (S.running && !S.finishT) { $('#restartRow').style.display = 'flex'; return; }
     ac(); if (AC && AC.state === 'suspended') AC.resume(); // 借开卷手势解锁音频
+    startRace(S.paper, level);
+  };
+  $('#btnRestartNo').onclick = () => { $('#restartRow').style.display = 'none'; };
+  $('#btnRestartYes').onclick = () => {
+    $('#restartRow').style.display = 'none';
+    ac(); if (AC && AC.state === 'suspended') AC.resume();
     startRace(S.paper, level);
   };
 
