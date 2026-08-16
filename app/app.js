@@ -262,9 +262,20 @@
     persistActive();
   }
 
+  let armRestart = 0;
   $('#btnStart').onclick = () => {
     if (!S.paper) return;
-    if (S.running && !S.finishT && !confirm('有正在进行的比赛，重开将放弃它。确定重开？')) return;
+    // 比赛中重开：内联二次确认（WKWebView 没实现 confirm 面板，原生 confirm 会静默返回 false）
+    if (S.running && !S.finishT) {
+      if (Date.now() - armRestart > 3000) {
+        armRestart = Date.now();
+        const b = $('#btnStart'), old = b.textContent;
+        b.textContent = '放弃当前比赛？再点确认';
+        setTimeout(() => { b.textContent = old; }, 3000);
+        return;
+      }
+      armRestart = 0;
+    }
     ac(); if (AC && AC.state === 'suspended') AC.resume(); // 借开卷手势解锁音频
     startRace(S.paper, level);
   };
