@@ -454,22 +454,26 @@
     if (!S.running || S.pausing) return;
     S.pausing = true; S.pauseStart = Date.now();
     pushEv(auto ? 'auto_pause' : 'pause');
+    $('#abortBar').style.display = 'none'; $('#btnAbort').style.display = ''; // 每次进暂停重置确认条
     $('#pauseOv').classList.add('on');
     $('#pauseWhy').textContent = auto ? '屏幕离开，已自动暂停' : '幽灵也停下了';
   }
   $('#btnResume').onclick = () => {
     if (!S.pausing) return;
     ac();
+    $('#abortBar').style.display = 'none'; $('#btnAbort').style.display = ''; // 继续=天然取消放弃
     S.pausedAccum += Date.now() - S.pauseStart;
     S.pausing = false;
     pushEv('resume');
     $('#pauseOv').classList.remove('on');
     wakeLock(true);
   };
-  // 放弃比赛：不存盘、清恢复现场、回卷库（误开赛/不想赛了的出口）
-  $('#btnAbort').onclick = () => {
+  // 放弃比赛：确认条出现在遮罩顶部（远离下方按钮区，连点误触不到）
+  $('#btnAbort').onclick = () => { $('#btnAbort').style.display = 'none'; $('#abortBar').style.display = 'block'; };
+  $('#btnAbortYes').onclick = () => {
     S.running = false; S.pausing = false; S.starting = false; S.finishT = null;
     localStorage.removeItem(LS.active);
+    $('#abortBar').style.display = 'none'; $('#btnAbort').style.display = '';
     $('#pauseOv').classList.remove('on');
     clearInterval(S.timer);
     go('library');
