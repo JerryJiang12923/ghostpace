@@ -221,6 +221,7 @@
   let level = 1.0;
   function renderBrief(p) {
     $('#restartRow').style.display = 'none'; // 进赛前一律收起确认排
+    placeRestartRow();
     $('#briefTitle').textContent = p.title;
     $('#briefTag').textContent = subjName(p.subject) + (p.grade ? ' · ' + p.grade : '');
     const tot = p.questions.reduce((s, q) => s + q.pred_sec, 0);
@@ -263,6 +264,13 @@
     persistActive();
   }
 
+  // 确认排位置：竖屏在开卷键上方（底部拇指区易误触），横屏在下方——DOM 顺序随方向搬
+  const landMQ = matchMedia('(orientation: landscape)');
+  function placeRestartRow() {
+    const row = $('#restartRow'), btn = $('#btnStart');
+    if (landMQ.matches) btn.after(row); else btn.before(row);
+  }
+  landMQ.addEventListener('change', placeRestartRow);
   $('#btnStart').onclick = () => {
     if (!S.paper) return;
     // 比赛中重开：分离确认（WKWebView 没有 confirm 面板；同键二次确认会被连点误触）

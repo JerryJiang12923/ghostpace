@@ -20,6 +20,7 @@ body{background:var(--bg);color:var(--ink);font-family:"Songti SC","STSongti-SC-
 .tag.red{color:var(--red-hi);border-color:rgba(200,64,42,.4)}
 .tag.ghost{color:var(--ghost);border-color:rgba(138,216,198,.35)}
 .btn{display:flex;align-items:center;justify-content:center;border-radius:16px;border:none;font-family:inherit;cursor:pointer}
+#restartRow{gap:10px;margin:10px 0} /* 竖屏在开卷键上、横屏在下——位置由 JS 按方向搬 */
 .btn-primary{background:linear-gradient(180deg,var(--red-hi),var(--red));color:#fff3ec;font-size:20px;letter-spacing:.2em;
   box-shadow:0 6px 24px rgba(200,64,42,.35),inset 0 1px 0 rgba(255,255,255,.15)}
 .btn-ghost{background:transparent;border:1px solid var(--line);color:var(--dim);font-size:14px}
