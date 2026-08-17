@@ -8,6 +8,7 @@
   const fmt = s => { s = Math.max(0, Math.round(s)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
   const fmtSigned = s => (s >= 0 ? '领先 ' : '落后 ') + '≈ ' + fmt(Math.abs(s));
   const nowISO = () => new Date().toISOString();
+  const dayLocal = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
 
   /* ---------- 音效（WebAudio，无资产文件） ---------- */
   let AC = null;
@@ -95,6 +96,14 @@
       if (location.hash !== target) location.hash = target;
     });
   });
+  /* 按钮快速通道：pointerdown 即触发，不等 click。只用于不滚动的交互区
+   * （赛中/暂停遮罩/倒计时）——滚动区的按钮不抢 pointerdown，否则滚动起手会误触。
+   * click 兜底留给无 pointer 事件的环境；400ms 去重防双触发。 */
+  function fastTap(el, fn) {
+    let last = 0;
+    el.addEventListener('pointerdown', e => { e.preventDefault(); last = Date.now(); fn(e); });
+    el.addEventListener('click', e => { if (Date.now() - last > 400) fn(e); });
+  }
   function route() {
     let h = (location.hash || '#/library').replace('#/', '');
     // 深链：#/brief/<卷子id> 直达该卷赛前页（建卷 agent 给的入口链接）
@@ -105,12 +114,17 @@
     }
     if (h === 'race' && !S.running && !S.starting) h = 'library'; // 没有在赛 → 回卷库（倒计时中 starting=true 不算误弹）
     if (h === 'brief' && !S.paper) h = 'library';           // 没选卷 → 回卷库
-    if (h === 'result') {                                    // 结算永远展示最近一场
-      ensureLastResult().then(s => { if (s) renderResult(s); else go('library'); });
+    if (h === 'result') {
+      // 结算展示"最近相关的一场"：现场 > 桥最新 > 本地缓存（粘性的——看过某卷旧结算就停在那场）。
+      // 先取数渲染再切屏，不闪上一场的残留内容
+      ensureLastResult().then(s => {
+        if (!s) { go('library'); return; }
+        renderResult(s); activate('result');
+      });
+    } else {
+      if (h === 'brief' && S.paper) renderBrief(S.paper);    // 底栏直达赛前也能渲染当前卷（已赛卷的重赛入口）
+      activate(h);
     }
-    if (h === 'brief' && S.paper) renderBrief(S.paper);      // 底栏直达赛前也能渲染当前卷（已赛卷的重赛入口）
-    screens.forEach(s => $('#s-' + s).classList.toggle('on', s === h));
-    if (h === 'brief') placeRestartRow();                    // 可见后才能量出是否超屏
     // 底栏：当前页高亮；不可用的暗掉并禁点
     const canBrief = !!S.paper, canRace = S.running || S.starting, canResult = !!(S.lastResult || lsGet('gp_last', null));
     $$('#nav a').forEach(a => {
@@ -118,6 +132,10 @@
       a.classList.toggle('on', s === 's-' + h);
       a.classList.toggle('off', (s === 's-brief' && !canBrief) || (s === 's-race' && !canRace) || (s === 's-result' && !canResult));
     });
+  }
+  function activate(h) {
+    screens.forEach(s => $('#s-' + s).classList.toggle('on', s === h));
+    if (h === 'brief') placeRestartRow();                    // 可见后才能量出是否超屏
     if (h === 'library') renderLibrary();
   }
   /* 最近一场结果：现场 → 桥（磁盘，在线时权威） → localStorage（离线兜底） */
@@ -128,11 +146,12 @@
         const r = await fetch(BRIDGE + '/latest');
         if (r.ok) {
           const s = await r.json();
-          if (s) { S.lastResult = s; lsSet('gp_last', s); return s; }
+          if (s) { S.lastResult = s; lsSet('gp_last', s); }
         }
       } catch (e) { }
     }
-    S.lastResult = lsGet('gp_last', null);
+    if (!S.lastResult) S.lastResult = lsGet('gp_last', null);
+    if (S.lastResult) S.paper = paperById(S.lastResult.paper_id) || S.paper; // "再来一卷"要拿得到卷
     return S.lastResult;
   }
 
@@ -168,8 +187,11 @@
             if (s.win) h.wins++; else h.losses++;
             const diff = s.ghost - s.you;
             if (h.best == null || diff > h.best) h.best = diff;
-            // 完成日期取 session id 里的保存时刻（started_at 可能是中断恢复前的旧时间）
-            const day = s.id && s.id.length >= 10 ? s.id.slice(2, 6) + '-' + s.id.slice(6, 8) + '-' + s.id.slice(8, 10) : (s.started_at || '').slice(0, 10);
+            // 完成日期取 session id 里的保存时刻（id 是 UTC 时间戳，还原成 Date 再取本地日——凌晨完赛不再显示昨天；
+            // 不用 started_at：中断恢复时它是旧时间）
+            const day = s.id && s.id.length >= 14
+              ? dayLocal(new Date(Date.UTC(+s.id.slice(2, 6), +s.id.slice(6, 8) - 1, +s.id.slice(8, 10), +s.id.slice(10, 12), +s.id.slice(12, 14))))
+              : (s.started_at ? dayLocal(new Date(s.started_at)) : '');
             if ((s.id || '') >= (h.lastId || '')) { h.lastId = s.id || ''; h.last = diff; h.lastDay = day; }
             hist[s.paper_id] = h;
           });
@@ -297,37 +319,46 @@
   };
 
   function startRace(paper, lv) {
+    if (S.starting) return;      // 倒计时中禁止重入（双开会写双 start 事件并泄漏 interval）
+    clearInterval(S.timer);      // 赛中重开：杀掉旧 tick，防 interval 泄漏
     const qs = paper.questions;
     S.paper = paper; S.level = lv;
-    S.seed = parseInt(new Date().toISOString().slice(0, 10).replace(/-/g, ''), 10);
+    S.seed = (Date.now() / 1000) | 0; // 开赛时间戳做种子：同日重赛不再撞同一只幽灵（复盘按 session 存的 seedUsed 回放）
     S.ghost = Ghost.build(paper, lv, S.seed);
     $('#ghostEta').textContent = fmt(S.ghost.predTotal); // 未见其影之前的初始估计=计划总量
     S.order = qs.map(q => q.n); S.pointer = 0; S.skipped = []; S.done = {};
     S.events = []; S.pausedAccum = 0; S.pausing = false; S.finishT = null;
+    S.running = false; // 重开时旧 race 的 running 标志要在倒计时前清掉，否则倒计时间切后台会往新 events 里写 auto_pause
     S.glimpseRng = (function (a) { return function () { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; })(S.seed ^ 0x9e3779b9);
-    S.lastGlimpseShown = 0; S.lastGlimpse = -1; S.ghostSubmitShown = false;
-    // 倒计时
+    S.lastGlimpse = -1; S.ghostSubmitShown = false;
+    // 倒计时（点按遮罩 = 跳过倒计时立即开卷，也是倒计时卡死时的出口；令牌防迟到 interval 二次触发）
     S.starting = true;
+    S.raceGen = (S.raceGen || 0) + 1;
+    const gen = S.raceGen;
     go('race');
     const cd = $('#countdown'); cd.classList.add('on');
     let n = 3;
     cd.textContent = n;
     const cdi = setInterval(() => {
+      if (gen !== S.raceGen) { clearInterval(cdi); return; }
       n--;
       if (n > 0) { cd.textContent = n; sndClick(); }
-      else {
-        clearInterval(cdi);
-        cd.textContent = '开卷'; sndFlip();
-        setTimeout(() => { cd.classList.remove('on'); }, 450);
-        S.starting = false;
-        S.startWall = Date.now(); S.running = true;
-        pushEv('start');
-        S.glimpseAt = 20 + S.glimpseRng() * 40; // 第一瞥稍早
-        S.timer = setInterval(tick, 250);
-        wakeLock(true);
-        buildTrack(); updateRaceUI(true);
-      }
+      else { clearInterval(cdi); beginRace(); }
     }, 750);
+    S.cdTap = () => { if (gen === S.raceGen) { S.raceGen++; clearInterval(cdi); beginRace(); } };
+  }
+
+  function beginRace() {
+    const cd = $('#countdown');
+    cd.textContent = '开卷'; sndFlip();
+    setTimeout(() => { cd.classList.remove('on'); }, 450);
+    S.starting = false;
+    S.startWall = Date.now(); S.running = true;
+    pushEv('start');
+    S.glimpseAt = 20 + S.glimpseRng() * 40; // 第一瞥稍早
+    S.timer = setInterval(tick, 250);
+    wakeLock(true);
+    buildTrack(); updateRaceUI(true);
   }
 
   /* wakeLock */
@@ -368,7 +399,8 @@
     const cq = currentQ();
     const yourPos = (yourDone + (cq ? 0.5 : 0)) / n;
     $('#mkYou').style.left = (yourPos * 100) + '%';
-    // 幽灵（余光模式：只在 glimpse 时刻刷新显示；但交卷是考场公开事件，立即揭示）
+    // 幽灵（余光模式：只在 glimpse 时刻刷新显示。两个例外都是设计：交卷是考场公开事件立即揭示；
+    // 做完/跳过一题时的 force 刷新 = 做完一题自然抬头看一眼考场，不算信息泄漏）
     const justSubmitted = gpos.submitted && !S.ghostSubmitShown;
     if (force || justSubmitted || t >= S.glimpseAt) {
       S.lastGlimpse = t;
@@ -377,7 +409,9 @@
       const dispDone = gpos.done;
       const dispQ = dispDone < n ? (S.ghost.doneList[dispDone] ? S.ghost.doneList[dispDone].q : n) : n;
       // 幽灵预计完卷：只在"瞥见"时按所见进度外推（含在制题的进度分数，长题进行中不失真）
-      {
+      if (gpos.submitted) {
+        $('#ghostEta').textContent = fmt(S.ghost.submit); // 已交卷：冻结在实际交卷时刻，不再跟着秒表走
+      } else {
         const predOf = {}; S.paper.questions.forEach(q => predOf[q.n] = q.pred_sec * S.level);
         let predDone = 0;
         for (let i = 0; i < dispDone; i++) predDone += predOf[S.ghost.doneList[i].q] || 0;
@@ -396,7 +430,6 @@
         $('#glimpseTxt').innerHTML = `余光一瞥 · 幽灵在 <b>第 ${dispQ} 题附近</b>`;
       }
       $('#glimpseAge').textContent = '刚刚瞥见';
-      // 领先/落后：你已完成 yourDone 题，对照幽灵完成第 yourDone 题的时刻
       // 领先/落后：完成数含在制题 0.5 折算，在幽灵相邻完工时刻间插值——长题进行中不再一路悲观漂移
       const effDone = yourDone + (cq ? 0.5 : 0);
       const kDone = Math.floor(effDone);
@@ -434,7 +467,7 @@
   }
 
   /* ---------- 按钮 ---------- */
-  $('#btnDone').onclick = () => {
+  fastTap($('#btnDone'), () => {
     if (!S.running || S.pausing) return;
     const cq = currentQ();
     if (!cq) return;
@@ -447,25 +480,26 @@
     btn.classList.add('flash'); setTimeout(() => btn.classList.remove('flash'), 180);
     if (!currentQ()) { doFinish(); return; }
     updateRaceUI(true);
-  };
-  $('#btnSkip').onclick = () => {
+  });
+  fastTap($('#btnSkip'), () => {
     if (!S.running || S.pausing) return;
     const cq = currentQ();
     if (!cq || S.pointer >= S.order.length) return;
     pushEv('skip', cq);
     S.skipped.push(cq); S.pointer++;
     updateRaceUI(true);
-  };
-  $('#btnPause').onclick = () => doPause(false);
+  });
+  fastTap($('#btnPause'), () => doPause(false));
   function doPause(auto) {
     if (!S.running || S.pausing) return;
     S.pausing = true; S.pauseStart = Date.now();
     pushEv(auto ? 'auto_pause' : 'pause');
+    wakeLock(false); // 暂停即允许熄屏（人走开了屏幕不该一直亮着）；继续时 btnResume 重新申请
     $('#abortBar').style.display = 'none'; $('#btnAbort').style.display = ''; // 每次进暂停重置确认条
     $('#pauseOv').classList.add('on');
     $('#pauseWhy').textContent = auto ? '屏幕离开，已自动暂停' : '幽灵也停下了';
   }
-  $('#btnResume').onclick = () => {
+  fastTap($('#btnResume'), () => {
     if (!S.pausing) return;
     ac();
     $('#abortBar').style.display = 'none'; $('#btnAbort').style.display = ''; // 继续=天然取消放弃
@@ -474,17 +508,18 @@
     pushEv('resume');
     $('#pauseOv').classList.remove('on');
     wakeLock(true);
-  };
+  });
   // 放弃比赛：确认条出现在遮罩顶部（远离下方按钮区，连点误触不到）
-  $('#btnAbort').onclick = () => { $('#btnAbort').style.display = 'none'; $('#abortBar').style.display = 'flex'; };
-  $('#btnAbortYes').onclick = () => {
+  fastTap($('#btnAbort'), () => { $('#btnAbort').style.display = 'none'; $('#abortBar').style.display = 'flex'; });
+  fastTap($('#btnAbortYes'), () => {
     S.running = false; S.pausing = false; S.starting = false; S.finishT = null;
     localStorage.removeItem(LS.active);
     $('#abortBar').style.display = 'none'; $('#btnAbort').style.display = '';
     $('#pauseOv').classList.remove('on');
     clearInterval(S.timer);
+    wakeLock(false); // 放弃也要放掉常亮锁，否则回卷库后屏幕一直亮
     go('library');
-  };
+  });
 
   /* ---------- 结束与结算 ---------- */
   function doFinish() {
@@ -497,12 +532,13 @@
     S.lastResult = sess; lsSet('gp_last', sess);
     const rc = lsGet('gp_results', {}); rc[sess.paper_id] = sess; lsSet('gp_results', rc);
     saveSession(sess);
-    // 战绩
+    // 战绩（与桥端 /list 同结构：last/lastId/lastDay 也要写——离线时卡片印章和日期才不倒退）
     const h = history();
     const rec = h[S.paper.id] || { wins: 0, losses: 0, best: null };
     if (sess.result.win) rec.wins++; else rec.losses++;
     const diff = sess.result.ghost_submit_sec - sess.result.your_total_sec;
     if (rec.best == null || diff > rec.best) rec.best = diff;
+    rec.last = diff; rec.lastId = sess.id; rec.lastDay = dayLocal(new Date());
     h[S.paper.id] = rec; lsSet(LS.history, h);
     localStorage.removeItem(LS.active);
     renderResult(sess);
@@ -579,7 +615,7 @@
       wrap.appendChild(row);
     });
   }
-  $('#btnAgain').onclick = () => { renderBrief(S.paper); go('brief'); };
+  $('#btnAgain').onclick = () => { if (!S.paper) { go('library'); return; } renderBrief(S.paper); go('brief'); };
   $('#btnBack').onclick = () => go('library');
 
   /* 比赛过程折线：你 vs 幽灵的累计完成题数（幽灵按 seed 重放整局） */
@@ -648,7 +684,7 @@
     S.events = a.events; S.pointer = a.pointer; S.order = a.order;
     S.skipped = a.skipped; S.done = a.done;
     S.glimpseRng = (function (x) { return function () { x |= 0; x = x + 0x6D2B79F5 | 0; let t = Math.imul(x ^ x >>> 15, 1 | x); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; })(S.seed ^ 0x9e3779b9);
-    S.lastGlimpseShown = 0; S.lastGlimpse = -1; S.glimpseAt = 0; S.ghostSubmitShown = false;
+    S.lastGlimpse = -1; S.glimpseAt = 0; S.ghostSubmitShown = false;
     S.running = true;
     // 死时间兜底：无论页面被冻结/杀掉多久，恢复后时钟对齐到最后一个事件的时刻
     const lastT = S.events.length ? S.events[S.events.length - 1].t : 0;
@@ -661,8 +697,8 @@
     return true;
   }
 
-  /* 倒计时遮罩：点按可关（防冻结卡住） */
-  $('#countdown').onclick = () => $('#countdown').classList.remove('on');
+  /* 倒计时遮罩：点按 = 跳过倒计时立即开卷（绑定一次，具体动作由 startRace 通过 S.cdTap 注入） */
+  fastTap($('#countdown'), () => { if (S.cdTap) S.cdTap(); });
 
   /* ---------- 结算图导出（canvas 手绘，无外部依赖） ---------- */
   $('#btnShot').onclick = () => {
@@ -708,7 +744,7 @@
     const paper = paperById(sess.paper_id);
     const lvName = { '0.85': '轻松', '1': '标准', '1.15': '挑战' }[String(sess.level)] || '标准';
     x.fillStyle = DIM; x.font = '19px ' + serif;
-    x.fillText(`${paper ? paper.title : sess.paper_id} · ${lvName}档 · ${(sess.started_at || '').slice(0, 10)}`, pad + 128, y + 70);
+    x.fillText(`${paper ? paper.title : sess.paper_id} · ${lvName}档 · ${sess.started_at ? dayLocal(new Date(sess.started_at)) : ''}`, pad + 128, y + 70);
     y += 116;
     const bw = (W - pad * 2 - 16) / 2;
     [[pad, '你', sess.result.your_total_sec, RED], [pad + bw + 16, '幽灵', sess.result.ghost_submit_sec, GHOST]].forEach(b => {

@@ -1,6 +1,7 @@
 /* 卷灵 · 幽灵引擎
  * 赛前用固定 seed 一次生成整条时间线；赛中页面纯按 wall-clock 查表。
- * T_i = pred × form(OU) × stage × lognormal(σ) × event，总时长校验 ±8% 内，超限换 seed 重摇。
+ * T_i = pred × form(OU) × stage × lognormal(σ) × event；两遍生成——第一遍量出原始总长，
+ * 第二遍整体缩放，使 submit 精确落在 pred×(0.92~1.08)（漂移幅度由 seed 决定，见 tryBuild）。
  */
 'use strict';
 window.Ghost = (function () {
@@ -9,8 +10,8 @@ window.Ghost = (function () {
     stallHard: 0.20, stallMid: 0.12, stallEasy: 0.03,
     reviewP: 0.4, browseP: 0.6,
     formLo: 0.75, formHi: 1.45,
-    warmupN: 2, warmupF: 1.08, slumpLo: 0.55, slumpHi: 0.75, slumpF: 1.10,
-    checkLo: 0.03, checkHi: 0.08, tolLo: 0.92, tolHi: 1.08
+    warmupN: 2, warmupF: 1.08, slumpF: 1.10, // 低迷窗口位置随 seed 漂移，见 pass()
+    checkLo: 0.03, checkHi: 0.08
   };
 
   function mulberry32(a) {
@@ -33,15 +34,9 @@ window.Ghost = (function () {
    * doneList: [{q, t}] 按完成时间升序（含补做），供 positionAt 查表 */
   function build(paper, level, seed) {
     const pred = paper.questions.reduce((s, q) => s + q.pred_sec, 0) * level;
-    let best = null;
-    for (let attempt = 0; attempt < 80; attempt++) {
-      const g = tryBuild(paper, level, seed + attempt);
-      if (!best || Math.abs(g.submit - pred) < Math.abs(best.submit - pred)) best = g;
-      if (g.submit >= P.tolLo * pred && g.submit <= P.tolHi * pred) {
-        g.seedUsed = seed + attempt; g.predTotal = pred; return g;
-      }
-    }
-    best.seedUsed = seed + 999; best.predTotal = pred; return best;
+    const g = tryBuild(paper, level, seed); // 两遍缩放保证 submit 必落 0.92~1.08 倍 pred，无需重摇
+    g.seedUsed = seed; g.predTotal = pred;
+    return g;
   }
 
   function tryBuild(paper, level, seed) {
@@ -60,9 +55,9 @@ window.Ghost = (function () {
     const events = [], doneList = [];
     let form = 1, t = 0;
     if (rng() < P.browseP) { const b = (30 + rng() * 90) * mult; t += b; events.push({ t: 0, ev: 'browse', note: Math.round(b) + 's' }); }
-    // 全场 1–3 次停顿，落在随机题前
+    // 全场 1–3 次停顿，落在随机题前（下标只有 max(1,n-4) 种，钳制 nBrk 防小卷凑不齐死循环）
     const breaks = new Set();
-    const nBrk = 1 + Math.floor(rng() * 3);
+    const nBrk = Math.min(1 + Math.floor(rng() * 3), Math.max(1, n - 4));
     while (breaks.size < nBrk) breaks.add(2 + Math.floor(rng() * Math.max(1, n - 4)));
     const postponed = [];
     let prevType = qs[0].type;
