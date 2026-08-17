@@ -430,14 +430,20 @@
         $('#glimpseTxt').innerHTML = `余光一瞥 · 幽灵在 <b>第 ${dispQ} 题附近</b>`;
       }
       $('#glimpseAge').textContent = '刚刚瞥见';
-      // 领先/落后：完成数含在制题 0.5 折算，在幽灵相邻完工时刻间插值——长题进行中不再一路悲观漂移
-      const effDone = yourDone + (cq ? 0.5 : 0);
+      // 领先/落后：完成数 + 在制题进度折算（已耗时÷(预估×1.3)，钳到 0.9——刻意悲观：永远给"还没写完"
+      // 留足余量，同速做题时最多唱衰约 1/3 道题，交题时结算归还；超时折算封顶，但 −t 继续按秒掉，卡题照样显示失血），
+      // 在幽灵相邻完工时刻间插值。
+      // 注：幽灵时间线赛前已定，这里用的是它的"全量"时刻（含未瞥见段），与 ETA 只按所见外推不同——开卷考试式赛跑，可接受。
+      const lastEvT = S.events.length ? S.events[S.events.length - 1].t : 0;
+      const cqQ = cq ? S.paper.questions.find(x => x.n === cq) : null;
+      const frac = cqQ ? Math.min(0.9, Math.max(0, (t - lastEvT) / (cqQ.pred_sec * S.level * 1.3))) : 0;
+      const effDone = yourDone + frac;
       const kDone = Math.floor(effDone);
       const gT0 = Ghost.timeOfDone(S.ghost, kDone);
       const gT1 = Ghost.timeOfDone(S.ghost, Math.min(kDone + 1, n));
       const leadSec = (gT0 + (gT1 - gT0) * (effDone - kDone)) - t;
       const bl = $('#behind');
-      bl.textContent = fmtSigned(leadSec);
+      bl.textContent = (yourDone === 0 && frac < 0.1) ? '蓄势' : fmtSigned(leadSec); // 开卷头一程不报数
       bl.className = Math.abs(leadSec) < 20 ? 'behind even' : (leadSec >= 0 ? 'behind ahead' : 'behind');
     } else if (S.lastGlimpse >= 0) {
       $('#glimpseAge').textContent = Math.round(t - S.lastGlimpse) + ' 秒前瞥见';
