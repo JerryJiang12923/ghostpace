@@ -110,6 +110,7 @@
     }
     if (h === 'brief' && S.paper) renderBrief(S.paper);      // 底栏直达赛前也能渲染当前卷（已赛卷的重赛入口）
     screens.forEach(s => $('#s-' + s).classList.toggle('on', s === h));
+    if (h === 'brief') placeRestartRow();                    // 可见后才能量出是否超屏
     // 底栏：当前页高亮；不可用的暗掉并禁点
     const canBrief = !!S.paper, canRace = S.running || S.starting, canResult = !!(S.lastResult || lsGet('gp_last', null));
     $$('#nav a').forEach(a => {
@@ -223,6 +224,13 @@
     $('#restartRow').style.display = 'none'; // 进赛前一律收起确认排
     placeRestartRow();
     $('#briefTitle').textContent = p.title;
+    // 已赛提示：让用户知道这是重赛
+    const bh = $('#briefHist');
+    const ph = lsGet(LS.history, {})[p.id];
+    if (ph && ph.last != null) {
+      bh.textContent = `此卷已完赛 · 上次 ${ph.last >= 0 ? '赢' : '输'} ${fmt(Math.abs(ph.last))}${ph.lastDay ? ' · ' + ph.lastDay.slice(5).replace('-', '/') : ''}`;
+      bh.style.display = '';
+    } else bh.style.display = 'none';
     $('#briefTag').textContent = subjName(p.subject) + (p.grade ? ' · ' + p.grade : '');
     const tot = p.questions.reduce((s, q) => s + q.pred_sec, 0);
     $('#bStatN').textContent = p.questions.length;
@@ -264,17 +272,20 @@
     persistActive();
   }
 
-  // 确认排位置：竖屏在开卷键上方（底部拇指区易误触），横屏在下方——DOM 顺序随方向搬
-  const landMQ = matchMedia('(orientation: landscape)');
+  // 确认排位置按"内容是否超屏"自动判断：超屏→开卷键下方（底部不在拇指区）；未超屏→上方（避免贴着底栏误触）
   function placeRestartRow() {
-    const row = $('#restartRow'), btn = $('#btnStart');
-    if (landMQ.matches) btn.after(row); else btn.before(row);
+    const row = $('#restartRow'), btn = $('#btnStart'), brief = $('#s-brief');
+    if (!brief.classList.contains('on')) return;
+    const was = row.style.display; row.style.display = 'none';
+    const overflow = brief.scrollHeight > brief.clientHeight + 2;
+    row.style.display = was;
+    if (overflow) btn.after(row); else btn.before(row);
   }
-  landMQ.addEventListener('change', placeRestartRow);
+  addEventListener('resize', placeRestartRow);
   $('#btnStart').onclick = () => {
     if (!S.paper) return;
     // 比赛中重开：分离确认（WKWebView 没有 confirm 面板；同键二次确认会被连点误触）
-    if (S.running && !S.finishT) { $('#restartRow').style.display = 'flex'; return; }
+    if (S.running && !S.finishT) { placeRestartRow(); $('#restartRow').style.display = 'flex'; return; }
     ac(); if (AC && AC.state === 'suspended') AC.resume(); // 借开卷手势解锁音频
     startRace(S.paper, level);
   };
@@ -454,6 +465,14 @@
     pushEv('resume');
     $('#pauseOv').classList.remove('on');
     wakeLock(true);
+  };
+  // 放弃比赛：不存盘、清恢复现场、回卷库（误开赛/不想赛了的出口）
+  $('#btnAbort').onclick = () => {
+    S.running = false; S.pausing = false; S.starting = false; S.finishT = null;
+    localStorage.removeItem(LS.active);
+    $('#pauseOv').classList.remove('on');
+    clearInterval(S.timer);
+    go('library');
   };
 
   /* ---------- 结束与结算 ---------- */
