@@ -11,9 +11,12 @@
   const dayLocal = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
 
   /* ---------- 音效（WebAudio，无资产文件） ---------- */
-  let AC = null;
+  let AC = null, acRetryAt = 0; // acRetryAt：创建失败后的冷却时间戳，几秒后允许重试——堵死"一次失败永久静音"
   function ac() {
-    if (!AC) { try { AC = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { } }
+    if (!AC && Date.now() >= acRetryAt) {              // 冷却期内不再反复造
+      try { AC = new (window.AudioContext || window.webkitAudioContext)(); }
+      catch (e) { acRetryAt = Date.now() + 5000; return null; }   // 失败：5 秒后再试
+    }
     if (AC && (AC.state === 'suspended' || AC.state === 'interrupted')) AC.resume(); // iOS 打断会挂起，借手势恢复（interrupted 是 Safari 专有态）
     return AC;
   }
@@ -116,10 +119,10 @@
     const deep = h.match(/^brief\/(.+)$/);
     if (deep) {
       const p = paperById(decodeURIComponent(deep[1]));
-      if (p) { S.paper = p; h = 'brief'; } else h = 'library';
+      if (p) { S.browsePaper = p; h = 'brief'; } else h = 'library';
     }
     if (h === 'race' && !S.running && !S.starting) h = 'library'; // 没有在赛 → 回卷库（倒计时中 starting=true 不算误弹）
-    if (h === 'brief' && !S.paper) h = 'library';           // 没选卷 → 回卷库
+    if (h === 'brief' && !S.browsePaper) h = 'library';           // 没选卷 → 回卷库
     if (h === 'result') {
       // 结算展示"最近相关的一场"：现场 > 桥最新 > 本地缓存（粘性的——看过某卷旧结算就停在那场）。
       // 先取数渲染再切屏，不闪上一场的残留内容
@@ -128,11 +131,11 @@
         renderResult(s); activate('result');
       });
     } else {
-      if (h === 'brief' && S.paper) renderBrief(S.paper);    // 底栏直达赛前也能渲染当前卷（已赛卷的重赛入口）
+      if (h === 'brief' && S.browsePaper) renderBrief(S.browsePaper);    // 底栏直达赛前也能渲染当前卷（已赛卷的重赛入口）
       activate(h);
     }
     // 底栏：当前页高亮；不可用的暗掉并禁点
-    const canBrief = !!S.paper, canRace = S.running || S.starting, canResult = !!(S.lastResult || lsGet('gp_last', null));
+    const canBrief = !!S.browsePaper, canRace = S.running || S.starting, canResult = !!(S.lastResult || lsGet('gp_last', null));
     $$('#nav a').forEach(a => {
       const s = a.dataset.s;
       a.classList.toggle('on', s === 's-' + h);
@@ -157,13 +160,13 @@
       } catch (e) { }
     }
     if (!S.lastResult) S.lastResult = lsGet('gp_last', null);
-    if (S.lastResult) S.paper = paperById(S.lastResult.paper_id) || S.paper; // "再来一卷"要拿得到卷
+    if (S.lastResult) S.browsePaper = paperById(S.lastResult.paper_id) || S.browsePaper; // "再来一卷"要拿得到卷
     return S.lastResult;
   }
 
   // 已赛卷子：按卷取最新一场进结算；看过的结果按卷缓存，桥离线也能回看
   async function showPaperResult(p) {
-    S.paper = p;
+    S.browsePaper = p;
     try {
       const r = await fetch(BRIDGE + '/session?paper=' + encodeURIComponent(p.id));
       const s = r.ok ? await r.json() : null;
@@ -225,7 +228,7 @@
            if (!h || h.last == null) return (h && (h.wins + h.losses) > 0) ? '已完赛' : '尚未挑战';
            return `已完赛 · ${h.last >= 0 ? '赢' : '输'} ${fmt(Math.abs(h.last))}`;
          })()}</span><span>${h && h.lastDay ? h.lastDay.slice(5).replace('-', '/') : '开赛 →'}</span></div>`;
-      card.onclick = () => { S.paper = p; raced ? showPaperResult(p) : (renderBrief(p), go('brief')); };
+      card.onclick = () => { S.browsePaper = p; raced ? showPaperResult(p) : (renderBrief(p), go('brief')); };
       list.appendChild(card);
     });
     const add = document.createElement('div');
@@ -278,12 +281,12 @@
   $$('.level').forEach(b => b.onclick = () => {
     $$('.level').forEach(x => x.classList.remove('sel'));
     b.classList.add('sel'); level = parseFloat(b.dataset.lv);
-    if (S.paper) renderBrief(S.paper);
+    if (S.browsePaper) renderBrief(S.browsePaper);
   });
 
   /* ---------- 比赛状态 ---------- */
   const S = {
-    paper: null, ghost: null, seed: 0,
+    paper: null, browsePaper: null, ghost: null, seed: 0,
     startWall: 0, pauseStart: 0, pausedAccum: 0, pausing: false, starting: false,
     events: [], pointer: 0, order: [], skipped: [],
     glimpseAt: 0, lastGlimpse: -1, glimpseRng: null,
@@ -311,24 +314,24 @@
   }
   addEventListener('resize', placeRestartRow);
   $('#btnStart').onclick = () => {
-    if (!S.paper) return;
+    if (!S.browsePaper) return;
     // 比赛中重开：分离确认（WKWebView 没有 confirm 面板；同键二次确认会被连点误触）
     if (S.running && !S.finishT) { placeRestartRow(); $('#restartRow').style.display = 'flex'; return; }
     ac(); if (AC && AC.state === 'suspended') AC.resume(); // 借开卷手势解锁音频
-    startRace(S.paper, level);
+    startRace(S.browsePaper, level);
   };
   $('#btnRestartNo').onclick = () => { $('#restartRow').style.display = 'none'; };
   $('#btnRestartYes').onclick = () => {
     $('#restartRow').style.display = 'none';
     ac(); if (AC && AC.state === 'suspended') AC.resume();
-    startRace(S.paper, level);
+    startRace(S.browsePaper, level);
   };
 
   function startRace(paper, lv) {
     if (S.starting) return;      // 倒计时中禁止重入（双开会写双 start 事件并泄漏 interval）
     clearInterval(S.timer);      // 赛中重开：杀掉旧 tick，防 interval 泄漏
     const qs = paper.questions;
-    S.paper = paper; S.level = lv;
+    S.paper = paper; S.browsePaper = paper; S.level = lv; // 赛卷焊死：浏览操作（卷库点卡等）不再能覆盖   
     S.seed = (Date.now() / 1000) | 0; // 开赛时间戳做种子：同日重赛不再撞同一只幽灵（复盘按 session 存的 seedUsed 回放）
     S.ghost = Ghost.build(paper, lv, S.seed);
     $('#ghostEta').textContent = fmt(S.ghost.predTotal); // 未见其影之前的初始估计=计划总量
@@ -371,13 +374,22 @@
   let wl = null;
   async function wakeLock(on) {
     try {
-      if (on && 'wakeLock' in navigator) wl = await navigator.wakeLock.request('screen');
-      else if (wl) { await wl.release(); wl = null; }
-    } catch (e) { }
+      if (on) {
+        if ('wakeLock' in navigator) {
+          if (wl && wl.released === false) return;   // 已有生效锁：不重复 request（重复会吞原有同屏保活锁）
+          wl = await navigator.wakeLock.request('screen');
+        }
+      } else if (wl) {
+        await wl.release(); wl = null;                // release 后置 null：旧锁对象已过期，不能再碰
+      }
+    } catch (e) { if (on) wl = null; }               // request 失败：清引用，下次可重试
   }
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') { if (S.running && !S.pausing) wakeLock(true); bridgeHealth().then(flushPending); }
-    else if (S.running && !S.pausing && !S.finishT) doPause(true);
+    if (document.visibilityState === 'visible') {
+      // 回到前台：比赛中且未暂停则确保上锁（已有锁时 wakeLock(true) 会因 released!==false 直接返回，不重复请求）
+      if (S.running && !S.pausing) wakeLock(true);
+      bridgeHealth().then(flushPending);
+    } else if (S.running && !S.pausing && !S.finishT) doPause(true);
   });
 
   /* ---------- 赛道 UI ---------- */
@@ -533,6 +545,7 @@
     $('#pauseOv').classList.remove('on');
     clearInterval(S.timer);
     wakeLock(false); // 放弃也要放掉常亮锁，否则回卷库后屏幕一直亮
+    S.paper = null; // 解锁比赛卷：之后浏览操作可以重新选卷（卷库/赛前）
     guardUntil = Date.now() + 350; // 遮罩消失瞬间，落在下方按钮上的幽灵点击要吞掉
     go('library');
   });
@@ -542,6 +555,7 @@
     pushEv('finish');
     S.finishT = raceT();
     S.running = false;
+    S.paper = null; // 比赛结束：解锁赛卷，浏览可重新选卷（S.browsePaper 仍指向这场卷，供"再来一卷"）
     clearInterval(S.timer);
     wakeLock(false);
     const sess = buildSession();
@@ -631,7 +645,7 @@
       wrap.appendChild(row);
     });
   }
-  $('#btnAgain').onclick = () => { if (!S.paper) { go('library'); return; } renderBrief(S.paper); go('brief'); };
+  $('#btnAgain').onclick = () => { if (!S.browsePaper) { go('library'); return; } renderBrief(S.browsePaper); go('brief'); };
   $('#btnBack').onclick = () => go('library');
 
   /* 比赛过程折线：你 vs 幽灵的累计完成题数（幽灵按 seed 重放整局） */
@@ -691,7 +705,7 @@
     if (!a || !a.paper_id) return false;
     const p = paperById(a.paper_id);
     if (!p) { localStorage.removeItem(LS.active); return false; }
-    S.paper = p; S.level = a.level; S.seed = a.seed;
+    S.paper = p; S.browsePaper = p; S.level = a.level; S.seed = a.seed;
     S.ghost = Ghost.build(p, a.level, a.seed);
     $('#ghostEta').textContent = fmt(S.ghost.predTotal); // 恢复时先给计划总量，下一瞥再校准
     // 校验 seedUsed 一致（引擎确定性）
