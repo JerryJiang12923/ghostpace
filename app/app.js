@@ -376,14 +376,16 @@
       if (gpos.submitted) S.ghostSubmitShown = true;
       const dispDone = gpos.done;
       const dispQ = dispDone < n ? (S.ghost.doneList[dispDone] ? S.ghost.doneList[dispDone].q : n) : n;
-      // 幽灵预计完卷：只在"瞥见"时按所见进度外推（没见过就凭计划总量）——估计必须基于你看见的东西
+      // 幽灵预计完卷：只在"瞥见"时按所见进度外推（含在制题的进度分数，长题进行中不失真）
       {
         const predOf = {}; S.paper.questions.forEach(q => predOf[q.n] = q.pred_sec * S.level);
         let predDone = 0;
         for (let i = 0; i < dispDone; i++) predDone += predOf[S.ghost.doneList[i].q] || 0;
+        const curD = dispDone < n ? S.ghost.doneList[dispDone] : null;
+        const predWip = curD ? (predOf[curD.q] || 0) * gpos.frac : 0;  // 在制题按完成比例折算
         const predTotal = S.ghost.predTotal;
-        const pace = (t + predTotal / 3) / (predDone + predTotal / 3); // 收缩：样本少时外推保守
-        $('#ghostEta').textContent = fmt(t + (predTotal - predDone) * pace);
+        const pace = (t + predTotal / 3) / (predDone + predWip + predTotal / 3); // 收缩：样本少时外推保守
+        $('#ghostEta').textContent = fmt(t + (predTotal - predDone - predWip) * pace);
       }
       $('#mkGhost').style.left = ((dispDone + gpos.frac) / n * 100) + '%';
       $('#mkGhostQ').textContent = gpos.submitted ? '✓' : dispQ;
@@ -395,7 +397,12 @@
       }
       $('#glimpseAge').textContent = '刚刚瞥见';
       // 领先/落后：你已完成 yourDone 题，对照幽灵完成第 yourDone 题的时刻
-      const leadSec = Ghost.timeOfDone(S.ghost, yourDone) - t;
+      // 领先/落后：完成数含在制题 0.5 折算，在幽灵相邻完工时刻间插值——长题进行中不再一路悲观漂移
+      const effDone = yourDone + (cq ? 0.5 : 0);
+      const kDone = Math.floor(effDone);
+      const gT0 = Ghost.timeOfDone(S.ghost, kDone);
+      const gT1 = Ghost.timeOfDone(S.ghost, Math.min(kDone + 1, n));
+      const leadSec = (gT0 + (gT1 - gT0) * (effDone - kDone)) - t;
       const bl = $('#behind');
       bl.textContent = fmtSigned(leadSec);
       bl.className = Math.abs(leadSec) < 20 ? 'behind even' : (leadSec >= 0 ? 'behind ahead' : 'behind');
@@ -469,7 +476,7 @@
     wakeLock(true);
   };
   // 放弃比赛：确认条出现在遮罩顶部（远离下方按钮区，连点误触不到）
-  $('#btnAbort').onclick = () => { $('#btnAbort').style.display = 'none'; $('#abortBar').style.display = 'block'; };
+  $('#btnAbort').onclick = () => { $('#btnAbort').style.display = 'none'; $('#abortBar').style.display = 'flex'; };
   $('#btnAbortYes').onclick = () => {
     S.running = false; S.pausing = false; S.starting = false; S.finishT = null;
     localStorage.removeItem(LS.active);
