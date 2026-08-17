@@ -98,11 +98,17 @@
   });
   /* 按钮快速通道：pointerdown 即触发，不等 click。只用于不滚动的交互区
    * （赛中/暂停遮罩/倒计时）——滚动区的按钮不抢 pointerdown，否则滚动起手会误触。
-   * click 兜底留给无 pointer 事件的环境；400ms 去重防双触发。 */
+   * click 兜底留给无 pointer 事件的环境。lastTapAt 是全局的：
+   * pointerdown 已触发过的 400ms 内吞掉一切 click 兜底——防止遮罩级按钮（如"继续"）
+   * 触发后遮罩消失，系统把该次触摸的 click 派发到下层按钮（如"完成这题"）造成幽灵误触。 */
+  let lastTapAt = 0, guardUntil = 0; // guardUntil：恢复/放弃后的防呆窗，吞掉落在下层按钮上的第二击
   function fastTap(el, fn) {
-    let last = 0;
-    el.addEventListener('pointerdown', e => { e.preventDefault(); last = Date.now(); fn(e); });
-    el.addEventListener('click', e => { if (Date.now() - last > 400) fn(e); });
+    el.addEventListener('pointerdown', e => {
+      e.preventDefault();
+      if (Date.now() < guardUntil) return;      // 防呆窗内：不吃这次触发
+      lastTapAt = Date.now(); fn(e);
+    });
+    el.addEventListener('click', e => { if (Date.now() - lastTapAt > 400) fn(e); });
   }
   function route() {
     let h = (location.hash || '#/library').replace('#/', '');
@@ -397,6 +403,10 @@
     // 你
     const yourDone = Object.keys(S.done).length;
     const cq = currentQ();
+    // 当前题累计投入：attributeTimes 给出过去各段（含跳题前的第一段，暂停期 t 冻结天然不计）+ 本段
+    const lastEvT = S.events.length ? S.events[S.events.length - 1].t : 0;
+    const accQ = attributeTimes(S.events, S.order);
+    const curEl = cq ? (accQ[cq] || 0) + (t - lastEvT) : 0;
     const yourPos = (yourDone + (cq ? 0.5 : 0)) / n;
     $('#mkYou').style.left = (yourPos * 100) + '%';
     // 幽灵（余光模式：只在 glimpse 时刻刷新显示。两个例外都是设计：交卷是考场公开事件立即揭示；
@@ -434,9 +444,8 @@
       // 留足余量，同速做题时最多唱衰约 1/3 道题，交题时结算归还；超时折算封顶，但 −t 继续按秒掉，卡题照样显示失血），
       // 在幽灵相邻完工时刻间插值。
       // 注：幽灵时间线赛前已定，这里用的是它的"全量"时刻（含未瞥见段），与 ETA 只按所见外推不同——开卷考试式赛跑，可接受。
-      const lastEvT = S.events.length ? S.events[S.events.length - 1].t : 0;
       const cqQ = cq ? S.paper.questions.find(x => x.n === cq) : null;
-      const frac = cqQ ? Math.min(0.9, Math.max(0, (t - lastEvT) / (cqQ.pred_sec * S.level * 1.3))) : 0;
+      const frac = cqQ ? Math.min(0.9, Math.max(0, curEl / (cqQ.pred_sec * S.level * 1.3))) : 0;
       const effDone = yourDone + frac;
       const kDone = Math.floor(effDone);
       const gT0 = Ghost.timeOfDone(S.ghost, kDone);
@@ -451,8 +460,7 @@
     // 当前题信息
     if (cq) {
       const q = S.paper.questions.find(x => x.n === cq);
-      const lastT = S.events.length ? S.events[S.events.length - 1].t : 0;
-      const over = (t - lastT) > 2.5 * q.pred_sec * S.level;
+      const over = curEl > 2.5 * q.pred_sec * S.level; // 按累计投入算（暂停不清零，跳题补做两段合并）
       $('#qno').innerHTML = `${cq}<small> / ${n}</small>`;
       $('#qtype').innerHTML = `${typeName(q.type)} · 预估 <b class="num">${fmt(q.pred_sec * S.level)}</b>${q.difficulty === 'hard' ? ' · 难点' : ''}${over ? ' · <b style="color:var(--red-hi)">已超预估，考虑跳题</b>' : ''}`;
       const nq = nextAfter(cq);
@@ -514,6 +522,7 @@
     pushEv('resume');
     $('#pauseOv').classList.remove('on');
     wakeLock(true);
+    guardUntil = Date.now() + 350; // 遮罩消失瞬间，落在下方按钮上的幽灵点击/双击第二下都要吞掉
   });
   // 放弃比赛：确认条出现在遮罩顶部（远离下方按钮区，连点误触不到）
   fastTap($('#btnAbort'), () => { $('#btnAbort').style.display = 'none'; $('#abortBar').style.display = 'flex'; });
@@ -524,6 +533,7 @@
     $('#pauseOv').classList.remove('on');
     clearInterval(S.timer);
     wakeLock(false); // 放弃也要放掉常亮锁，否则回卷库后屏幕一直亮
+    guardUntil = Date.now() + 350; // 遮罩消失瞬间，落在下方按钮上的幽灵点击要吞掉
     go('library');
   });
 
