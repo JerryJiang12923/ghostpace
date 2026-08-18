@@ -459,23 +459,34 @@
       S.glimpseAt = t + 25 + S.glimpseRng() * 65;
       if (gpos.submitted) S.ghostSubmitShown = true;
       const dispDone = gpos.done;
-      const dispQ = dispDone < n ? (S.ghost.doneList[dispDone] ? S.ghost.doneList[dispDone].q : n) : n;
-      // 幽灵预计完卷：只在"瞥见"时按所见进度外推（含在制题的进度分数，长题进行中不失真）
+      // 幽灵"真正在做的题"从工作窗口推导：卡壳整段、补做回做段都如实标注，
+      // 不再把"下一件完工的事"错当成"正在做的事"（browse/停顿/回改间隙无窗口，退回完工顺序近似）
+      const wk = gpos.submitted ? null : Ghost.workAt(S.ghost, t);
+      const dispQ = wk ? wk.q : (dispDone < n ? (S.ghost.doneList[dispDone] ? S.ghost.doneList[dispDone].q : n) : n);
+      const wkFrac = wk ? Math.min(1, Math.max(0, (t - wk.from) / Math.max(1, wk.to - wk.from))) : 0;
+      const predOf = {}; S.paper.questions.forEach(q => predOf[q.n] = q.pred_sec * S.level);
+      const predTotal = S.ghost.predTotal;
+      // 幽灵预计完卷 = 已过时间(沉没) + 剩余工作量 × 已完工配速。
+      // 配速只由已完成的活证明（最后完工时刻÷已完成预测和，收缩向计划配速）——卡壳/在制时间不进配速分子：
+      // 局部卡壳 ≠ 全局降速，卡壳的代价以加法体现（卡一秒交卷约推迟一秒），不再乘到全部剩余工作量上暴涨
       if (gpos.submitted) {
         $('#ghostEta').textContent = fmt(S.ghost.submit); // 已交卷：冻结在实际交卷时刻，不再跟着秒表走
       } else if (dispDone >= n) {
         $('#ghostEta').textContent = '收尾检查中'; // 全题写完未交卷：检查期(3–8%)进行中，外推公式在此退化(剩0→显示当前t)，如实提示
       } else {
-        const predOf = {}; S.paper.questions.forEach(q => predOf[q.n] = q.pred_sec * S.level);
         let predDone = 0;
         for (let i = 0; i < dispDone; i++) predDone += predOf[S.ghost.doneList[i].q] || 0;
-        const curD = dispDone < n ? S.ghost.doneList[dispDone] : null;
-        const predWip = curD ? (predOf[curD.q] || 0) * gpos.frac : 0;  // 在制题按完成比例折算
-        const predTotal = S.ghost.predTotal;
-        const pace = (t + predTotal / 3) / (predDone + predWip + predTotal / 3); // 收缩：样本少时外推保守
+        // 在制题进度：优先真实工作窗口（题号与占比都真），无窗口退回完工插值
+        const predWip = wk
+          ? (predOf[wk.q] || 0) * wkFrac
+          : (S.ghost.doneList[dispDone] ? (predOf[S.ghost.doneList[dispDone].q] || 0) * gpos.frac : 0);
+        const tDone = dispDone > 0 ? S.ghost.doneList[dispDone - 1].t : 0; // 最后一题完工时刻（卡壳期间冻结）
+        const pace = (tDone + predTotal / 3) / (predDone + predTotal / 3); // 收缩向计划配速1.0：见得少时别太信观测
         $('#ghostEta').textContent = fmt(t + (predTotal - predDone - predWip) * pace);
       }
-      $('#mkGhost').style.left = ((dispDone + gpos.frac) / n * 100) + '%';
+      // 幽灵标记：优先真实工作窗口（卡壳窗内位置不漂、补做真的往回走），无窗口退回完工插值
+      const mkPos = wk ? (wk.q - 1 + wkFrac * 0.85) / n : (dispDone + gpos.frac) / n;
+      $('#mkGhost').style.left = (mkPos * 100) + '%';
       $('#mkGhostQ').textContent = gpos.submitted ? '✓' : dispQ;
       // 状态行
       if (gpos.submitted) {
@@ -483,7 +494,9 @@
       } else if (dispDone >= n) {
         $('#glimpseTxt').innerHTML = '余光一瞥 · 幽灵 <b>写完了，收卷中</b>';
       } else {
-        $('#glimpseTxt').innerHTML = `余光一瞥 · 幽灵在 <b>第 ${dispQ} 题附近</b>`;
+        // 在制时长已超该题预估 2 倍 → 考场里你早注意到 ta 停笔了：如实说"卡住"（正常波动极少越过 2 倍）
+        const stuckHint = wk && (t - wk.from) > (predOf[wk.q] || 0) * 2 ? '卡在' : '在';
+        $('#glimpseTxt').innerHTML = `余光一瞥 · 幽灵${stuckHint} <b>第 ${dispQ} 题附近</b>`;
       }
       $('#glimpseAge').textContent = '刚刚瞥见';
       // 领先/落后：完成数 + 在制题进度折算（已耗时÷(预估×1.3)，钳到 0.9——刻意悲观：永远给"还没写完"

@@ -52,7 +52,7 @@ window.Ghost = (function () {
   function pass(paper, level, seed, mult) {
     const rng = mulberry32(seed >>> 0);
     const qs = paper.questions, n = qs.length;
-    const events = [], doneList = [];
+    const events = [], doneList = [], work = []; // work: 幽灵逐段"真正在做第几题"的窗口（含卡壳整段与补做回做段），显示层据此如实标注
     let form = 1, t = 0;
     if (rng() < P.browseP) { const b = (30 + rng() * 90) * mult; t += b; events.push({ t: 0, ev: 'browse', note: Math.round(b) + 's' }); }
     // 全场 1–3 次停顿，落在随机题前（下标只有 max(1,n-4) 种，钳制 nBrk 防小卷凑不齐死循环）
@@ -61,6 +61,7 @@ window.Ghost = (function () {
     while (breaks.size < nBrk) breaks.add(2 + Math.floor(rng() * Math.max(1, n - 4)));
     const postponed = [];
     let prevType = qs[0].type;
+    let wStart = t; // 当前工作窗口起点：browse/停顿/回改结束后重置
     for (let i = 0; i < n; i++) {
       const q = qs[i];
       form = 1 + P.rho * (form - 1) + randn(rng) * P.formSd;
@@ -75,13 +76,14 @@ window.Ghost = (function () {
       const sp = q.difficulty === 'hard' ? P.stallHard : q.difficulty === 'mid' ? P.stallMid : P.stallEasy;
       const stalled = rng() < sp;
       if (stalled) dur *= 2.5 + rng() * 1.5;
-      if (breaks.has(i)) { const b = (20 + rng() * 40) * mult; t += b; events.push({ t, ev: 'break', note: Math.round(b) + 's' }); }
+      if (breaks.has(i)) { const b = (20 + rng() * 40) * mult; t += b; events.push({ t, ev: 'break', note: Math.round(b) + 's' }); wStart = t; }
       if (q.type !== prevType) {
         events.push({ t, ev: 'flip' });
-        if (rng() < P.reviewP) { const r = (30 + rng() * 60) * mult; t += r; events.push({ t, ev: 'review', note: Math.round(r) + 's' }); }
+        if (rng() < P.reviewP) { const r = (30 + rng() * 60) * mult; t += r; events.push({ t, ev: 'review', note: Math.round(r) + 's' }); wStart = t; }
         prevType = q.type;
       }
       t += dur;
+      work.push({ q: q.n, from: wStart, to: t });
       if (stalled && rng() < 0.5 && i < n - 3) {
         events.push({ t, ev: 'stall_skip', q: q.n });
         postponed.push({ q: q.n, extra: dur * 0.5 });
@@ -89,9 +91,12 @@ window.Ghost = (function () {
         doneList.push({ q: q.n, t });
         events.push({ t, ev: 'q_done', q: q.n, note: stalled ? 'stall' : undefined });
       }
+      wStart = t;
     }
     for (const p of postponed) {
+      const wFrom = t;
       t += p.extra;
+      work.push({ q: p.q, from: wFrom, to: t }); // 补做：幽灵真的翻回去做那道题
       doneList.push({ q: p.q, t });
       events.push({ t, ev: 'q_done', q: p.q, note: 'returned' });
     }
@@ -100,7 +105,18 @@ window.Ghost = (function () {
     events.push({ t: writeEnd, ev: 'check_begin' });
     events.push({ t, ev: 'submit' });
     doneList.sort((a, b) => a.t - b.t);
-    return { events, doneList, submit: t, writeEnd };
+    return { events, doneList, submit: t, writeEnd, work };
+  }
+
+  /* t 时刻幽灵真正身处的题目窗口 {q, from, to}；browse/停顿/回改/检查的间隙返回 null。
+   * 卡壳窗 = 整段死磕时间，补做窗 = 回头重做那段——显示层据此标注真实题号，
+   * 不再把"下一件完工的事"错当成"正在做的事" */
+  function workAt(g, t) {
+    const w = g.work || [];
+    for (let i = 0; i < w.length; i++) {
+      if (t >= w[i].from && t < w[i].to) return w[i];
+    }
+    return null;
   }
 
   /* race 时刻 t 秒时幽灵的位置：{done, frac, submitted} */
@@ -142,5 +158,5 @@ window.Ghost = (function () {
     return out;
   }
 
-  return { build, positionAt, timeOfDone, replayNotes, P };
+  return { build, positionAt, timeOfDone, workAt, replayNotes, P };
 })();
