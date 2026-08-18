@@ -2,7 +2,7 @@
 'use strict';
 (function () {
   const BRIDGE = 'http://127.0.0.1:8756';
-  const LS = { history: 'gp_history', active: 'gp_active', pending: 'gp_pending' };
+  const LS = { history: 'gp_history', active: 'gp_active', pending: 'gp_pending', orphan: 'gp_orphan' };
   const $ = s => document.querySelector(s);
   const $$ = s => document.querySelectorAll(s);
   const fmt = s => { s = Math.max(0, Math.round(s)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
@@ -241,6 +241,7 @@
   // 先按本地缓存秒渲，再等桥返回后刷新——切到卷库零等待；数据没变就不二次渲染（防闪）
   let lastHistJSON = '';
   async function renderLibrary() {
+    renderOrphanBar();
     const cached = history();
     lastHistJSON = JSON.stringify(cached);
     drawLibrary(cached);
@@ -371,6 +372,9 @@
     S.timer = setInterval(tick, 250);
     wakeLock(true);
     buildTrack(); updateRaceUI(true);
+    // 倒计时期间切后台的场景：visibilitychange 那一刻还没 running 不会触发自动暂停，
+    // 倒计时走完 beginRace 在后台照常启动秒表——开跑即补一个自动暂停，时间不空转
+    if (document.visibilityState === 'hidden') doPause(true);
   }
 
   /* wakeLock */
@@ -391,7 +395,7 @@
     if (document.visibilityState === 'visible') {
       // 回到前台：比赛中且未暂停则确保上锁（已有锁时 wakeLock(true) 会因 released!==false 直接返回，不重复请求）
       if (S.running && !S.pausing) wakeLock(true);
-      bridgeHealth().then(flushPending);
+      bridgeSync();
     } else if (S.running && !S.pausing && !S.finishT) doPause(true);
   });
 
@@ -436,6 +440,8 @@
       // 幽灵预计完卷：只在"瞥见"时按所见进度外推（含在制题的进度分数，长题进行中不失真）
       if (gpos.submitted) {
         $('#ghostEta').textContent = fmt(S.ghost.submit); // 已交卷：冻结在实际交卷时刻，不再跟着秒表走
+      } else if (dispDone >= n) {
+        $('#ghostEta').textContent = '收尾检查中'; // 全题写完未交卷：检查期(3–8%)进行中，外推公式在此退化(剩0→显示当前t)，如实提示
       } else {
         const predOf = {}; S.paper.questions.forEach(q => predOf[q.n] = q.pred_sec * S.level);
         let predDone = 0;
@@ -451,6 +457,8 @@
       // 状态行
       if (gpos.submitted) {
         $('#glimpseTxt').innerHTML = '幽灵 <b>已交卷</b>';
+      } else if (dispDone >= n) {
+        $('#glimpseTxt').innerHTML = '余光一瞥 · 幽灵 <b>写完了，收卷中</b>';
       } else {
         $('#glimpseTxt').innerHTML = `余光一瞥 · 幽灵在 <b>第 ${dispQ} 题附近</b>`;
       }
@@ -488,7 +496,7 @@
     const rest = S.order.slice(S.pointer + 1).concat(S.skipped.filter(x => x !== cq));
     return rest.length ? rest[0] : null;
   }
-  function typeName(t) { return { choice: '选择', fill: '填空', solve: '解答', reading: '阅读', cloze: '完形', writing: '作文' }[t] || '题目'; }
+  function typeName(t) { return { choice: '选择', multi: '多选', fill: '填空', solve: '解答', reading: '阅读', cloze: '完形', writing: '作文', other: '其他' }[t] || '题目'; }
 
   function tick() {
     if (!S.running || S.pausing) return;
@@ -703,11 +711,81 @@
       order: S.order, skipped: S.skipped, done: S.done
     });
   }
+  /* 存档与当前卷是否兼容：题数、题号逐一吻合。不兼容时硬恢复会让事件流里的题号
+   * 在新卷里找不到，buildSession 的 questions.find() → undefined → 结算空指针
+   * （和"比赛卷被换"同族的坑）。 */
+  function archiveCompatible(a) {
+    const p = paperById(a.paper_id);
+    return !!(p && a.order && a.order.length === p.questions.length &&
+      p.questions.every((q, i) => q.n === a.order[i]));
+  }
+  /* 孤儿存档：绝不静默删档——这是未完成比赛唯一的现场记录。
+   * 挪进 gp_orphan（persistActive 只写 gp_active，不会覆盖它），
+   * 卷库页挂出明示条让用户找 agent 尽可能修复；桥在线时自动备份进 data/profile/，
+   * agent 不依赖设备 localStorage 也能拿到现场。 */
+  function orphanArchive(a) {
+    lsSet(LS.orphan, a);
+    localStorage.removeItem(LS.active);
+    renderOrphanBar();
+    pushOrphan();
+  }
+  async function pushOrphan() {
+    const o = lsGet(LS.orphan, null);
+    if (!o || !bridgeOn) return;
+    try {
+      await fetch(BRIDGE + '/save', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ relpath: 'profile/active_orphan_' + o.paper_id + '_' + (o.startWall || 0) + '.json', data: o })
+      });
+    } catch (e) { }
+  }
+  function renderOrphanBar() {
+    const bar = $('#orphanBar'); if (!bar) return;
+    const o = lsGet(LS.orphan, null);
+    if (!o) { bar.style.display = 'none'; return; }
+    const p = paperById(o.paper_id);
+    $('#orphanTxt').innerHTML =
+      `有一场未完成比赛无法自动恢复${p ? '：《' + p.title + '》' : '（卷 ' + o.paper_id + ' 已不在卷库）'}——存档后卷子被改动过。` +
+      `<b>请在聊天里告诉 agent，它会尽可能修复这场存档</b>（桥在线时已自动备份到 data/profile/）。修好后回来点"再试恢复"。`;
+    bar.style.display = '';
+  }
+  $('#orphanRetry').onclick = () => {
+    const o = lsGet(LS.orphan, null);
+    if (!o) return;
+    if (archiveCompatible(o)) {
+      lsSet(LS.active, o); localStorage.removeItem(LS.orphan);
+      renderOrphanBar(); // 孤儿已清，先收条再进赛道
+      if (tryRestore()) return; // 成功：已进赛道（暂停态）
+    }
+    renderOrphanBar();
+    $('#orphanTxt').innerHTML += '<br><span style="color:var(--red-hi)">仍不兼容——等 agent 修好卷子再来。</span>';
+  };
+  // 桥离线时 agent 拿不到备份：把存档 JSON 复制到剪贴板，用户粘到聊天里交给 agent
+  $('#orphanCopy').onclick = async () => {
+    const o = lsGet(LS.orphan, null);
+    if (!o) return;
+    try { await navigator.clipboard.writeText(JSON.stringify(o)); $('#orphanCopy').textContent = '已复制 ✓'; }
+    catch (e) { $('#orphanCopy').textContent = '复制失败'; }
+    setTimeout(() => { $('#orphanCopy').textContent = '复制存档'; }, 2000);
+  };
+  // 弃档是销毁证据级的操作：内联二次确认（本 WebView 无 confirm 面板）
+  let orphanDropArm = 0;
+  $('#orphanDrop').onclick = () => {
+    if (Date.now() - orphanDropArm < 3000) {
+      localStorage.removeItem(LS.orphan); orphanDropArm = 0;
+      $('#orphanDrop').textContent = '弃档';
+      renderOrphanBar();
+    } else {
+      orphanDropArm = Date.now();
+      $('#orphanDrop').textContent = '确认弃档？再点一次';
+      setTimeout(() => { $('#orphanDrop').textContent = '弃档'; }, 3000);
+    }
+  };
   function tryRestore() {
     const a = lsGet(LS.active, null);
     if (!a || !a.paper_id) return false;
+    if (!archiveCompatible(a)) { orphanArchive(a); return false; }
     const p = paperById(a.paper_id);
-    if (!p) { localStorage.removeItem(LS.active); return false; }
     S.paper = p; S.browsePaper = p; S.level = a.level; S.seed = a.seed;
     S.ghost = Ghost.build(p, a.level, a.seed);
     $('#ghostEta').textContent = fmt(S.ghost.predTotal); // 恢复时先给计划总量，下一瞥再校准
@@ -725,6 +803,10 @@
     go('race'); buildTrack();
     $('#pauseOv').classList.add('on');
     $('#pauseWhy').textContent = '页面重开，已从断点恢复（已暂停）';
+    // 档位选中态同步成恢复局的真实档位（否则赛前页永远显示"标准"被选中；
+    // 同时让 level 变量一致——弃赛后直接重开不会拿错档位）
+    level = a.level;
+    $$('.level').forEach(b => b.classList.toggle('sel', parseFloat(b.dataset.lv) === a.level));
     S.timer = setInterval(tick, 250);
     updateRaceUI(true);
     return true;
@@ -862,9 +944,10 @@
   };
 
   /* ---------- 启动 ---------- */
+  const bridgeSync = () => bridgeHealth().then(() => { flushPending(); pushOrphan(); }); // 体检→补传待存→备份孤儿存档
   addEventListener('hashchange', route);
   addEventListener('pointerdown', () => ac(), true); // 兜底：任何真实点击都尝试唤醒音频（iOS 只认手势）
-  bridgeHealth().then(flushPending);
-  setInterval(() => bridgeHealth().then(flushPending), 15000);
+  bridgeSync();
+  setInterval(bridgeSync, 15000);
   if (!tryRestore()) route();
 })();

@@ -12,6 +12,14 @@
 <section class="screen" id="s-library">
   <div class="greet">卷 灵<small>GHOSTPACE</small></div>
   <div class="netline"><span class="dot off" id="bridgeDot"></span> <span id="netTxt">本地桥检测中…</span></div>
+  <div id="orphanBar" style="display:none;border:1px solid var(--red);border-radius:10px;padding:12px 14px;margin:10px 0 4px;background:rgba(224,86,60,.08)">
+    <p id="orphanTxt" style="font-size:13px;line-height:1.6"></p>
+    <div style="display:flex;gap:10px;margin-top:10px">
+      <button class="btn btn-primary" id="orphanRetry" style="flex:1;padding:10px 0;font-size:13px">再试恢复</button>
+      <button class="btn btn-ghost" id="orphanCopy" style="flex:1;padding:10px 0;font-size:13px">复制存档</button>
+      <button class="btn btn-ghost" id="orphanDrop" style="flex:1;padding:10px 0;font-size:13px;color:var(--dim)">弃档</button>
+    </div>
+  </div>
   <div class="sec">待 战 卷</div>
   <div id="paperList"></div>
 </section>

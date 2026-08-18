@@ -120,11 +120,14 @@ window.Ghost = (function () {
     return { done, frac };
   }
 
-  /* 幽灵完成第 k 题（按完成顺序）的时刻；k=0 → 0 */
+  /* 幽灵完成第 k 题（按完成顺序）的时刻；k=0 → 0；k≥n → 交卷时刻
+   * （最后一题"完工"取 submit 而非 writeEnd：领先/落后的终点必须与胜负判定同一条线——
+   * 幽灵写完到交卷还有 3–8% 的检查时间，终点取 writeEnd 会在冲刺段凭空多报几分钟落后） */
   function timeOfDone(g, k) {
     if (k <= 0) return 0;
     const dl = g.doneList;
-    return dl[Math.min(k, dl.length) - 1].t;
+    if (k >= dl.length) return g.submit;
+    return dl[k - 1].t;
   }
 
   /* 复盘摘要：卡壳/回改/停顿事件列表（人类可读） */
