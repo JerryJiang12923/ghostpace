@@ -851,13 +851,30 @@
   function renderShot(sess) {
     const W = 750, pad = 44, rowH = 56;
     const rows = sess.result.per_q;
-    const H = 342 + 180 + rows.length * rowH + 80;
     const SC = 2; // 2 倍像素渲染，导出更清晰（布局坐标不变）
-    const cv = document.createElement('canvas'); cv.width = W * SC; cv.height = H * SC;
-    const x = cv.getContext('2d');
-    x.scale(SC, SC);
     const RED = '#e0563c', DIM = '#8d8474', INK = '#d9d2c2', FAINT = '#5d5546', GHOST = '#8ad8c6', GOLD = '#c8a24a';
     const mono = 'ui-monospace,Menlo,monospace', serif = '"PingFang SC",sans-serif';
+    const cv = document.createElement('canvas');
+    const x = cv.getContext('2d');
+    // 头部信息行先量后画：标题太长就标题独占一行、档位·日期换行（必要时标题截断加省略号）——
+    // 日期永远不许被顶出画布。量完再定画布高度。
+    const paper = paperById(sess.paper_id);
+    const lvName = { '0.85': '挑战', '1': '标准', '1.15': '轻松' }[String(sess.level)] || '标准';
+    const titleStr = paper ? paper.title : sess.paper_id;
+    const metaSuffix = ' · ' + lvName + '档 · ' + (sess.started_at ? dayLocal(new Date(sess.started_at)) : '');
+    const metaMax = W - (pad + 128) - pad; // 信息行右缘留白
+    let metaExtra = 0, titleLine = titleStr;
+    x.font = '19px ' + serif;
+    if (x.measureText(titleStr + metaSuffix).width > metaMax) {
+      metaExtra = 26;
+      if (x.measureText(titleLine).width > metaMax) {
+        while (titleLine.length > 1 && x.measureText(titleLine + '…').width > metaMax) titleLine = titleLine.slice(0, -1);
+        titleLine += '…';
+      }
+    }
+    const H = 342 + 180 + rows.length * rowH + 80 + metaExtra;
+    cv.width = W * SC; cv.height = H * SC;
+    x.scale(SC, SC);
     x.fillStyle = '#16120d'; x.fillRect(0, 0, W, H);
     const g = x.createRadialGradient(W * .75, -60, 0, W * .75, -60, W);
     g.addColorStop(0, 'rgba(200,162,74,.10)'); g.addColorStop(1, 'rgba(200,162,74,0)');
@@ -880,11 +897,14 @@
     const diff = Math.abs(sess.result.ghost_submit_sec - sess.result.your_total_sec);
     x.fillStyle = INK; x.font = '700 40px ' + serif;
     x.fillText((win ? '赢 ' : '输 ') + fmt(diff), pad + 128, y + 26);
-    const paper = paperById(sess.paper_id);
-    const lvName = { '0.85': '挑战', '1': '标准', '1.15': '轻松' }[String(sess.level)] || '标准';
     x.fillStyle = DIM; x.font = '19px ' + serif;
-    x.fillText(`${paper ? paper.title : sess.paper_id} · ${lvName}档 · ${sess.started_at ? dayLocal(new Date(sess.started_at)) : ''}`, pad + 128, y + 70);
-    y += 116;
+    if (metaExtra) { // 标题太长：标题一行（超宽已截断加省略号），档位·日期第二行
+      x.fillText(titleLine, pad + 128, y + 60);
+      x.fillText(metaSuffix.slice(3), pad + 128, y + 86);
+    } else {
+      x.fillText(titleStr + metaSuffix, pad + 128, y + 70);
+    }
+    y += 116 + metaExtra;
     const bw = (W - pad * 2 - 16) / 2;
     [[pad, '你', sess.result.your_total_sec, RED], [pad + bw + 16, '幽灵', sess.result.ghost_submit_sec, GHOST]].forEach(b => {
       x.fillStyle = '#211b14'; rr(b[0], y, bw, 100, 14); x.fill();
