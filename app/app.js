@@ -11,40 +11,65 @@
   const dayLocal = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
 
   /* ---------- 音效（WebAudio，无资产文件） ----------
-   * 铁律：音效异常绝不外泄进游戏逻辑——所有发声整体 try/catch；
-   * 死掉的 context（state=closed）立即弃掉重建，不许"一次故障永久哑巴"。 */
-  let AC = null, acRetryAt = 0; // acRetryAt：构造失败后的冷却时间戳，5 秒后允许重试
+   * 铁律一：音效异常绝不外泄进游戏逻辑——所有发声整体 try/catch；
+   * 铁律二：不许"一次故障永久哑巴"——死 context（closed）立即重建；
+   * 僵尸 context（活着但 resume 永不生效，iOS 病灶）按"连续无声"计数弃掉重建；
+   * iOS 只认手势：每次真实点按都尝试用静音 buffer 预热解锁。 */
+  let AC = null, acRetryAt = 0, acSilent = 0; // acRetryAt：构造失败冷却；acSilent：连续无声计数
+  function acDrop() { if (AC) { try { AC.close(); } catch (e) { } } AC = null; acSilent = 0; }
   function ac() {
     try {
       if (AC && AC.state === 'closed') AC = null;    // 死 context：弃掉，下一步重建
       if (!AC && Date.now() >= acRetryAt) {          // 冷却期内不再反复造
-        try { AC = new (window.AudioContext || window.webkitAudioContext)(); }
+        try { AC = new (window.AudioContext || window.webkitAudioContext)(); acSilent = 0; }
         catch (e) { acRetryAt = Date.now() + 5000; return null; }
       }
       if (AC && (AC.state === 'suspended' || AC.state === 'interrupted')) AC.resume().catch(() => { }); // iOS 打断会挂起，借手势恢复（interrupted 是 Safari 专有态）
       return AC;
     } catch (e) { return null; }
   }
-  function sndClick() {
+  /* 取"能出声"的 context：state 不是 running 就说明这次发声注定无声——
+   * 记一次无声；连续 3 次判定为僵尸（resume 始终不生效）→ 弃掉重建，最多 3 次点按内自愈 */
+  function acReady() {
+    const c = ac();
+    if (!c) return null;
+    if (c.state !== 'running') {
+      if (++acSilent >= 3) acDrop();
+      return null;
+    }
+    acSilent = 0;
+    return c;
+  }
+  /* iOS 解锁：手势里放一段静音 buffer 预热——WebKit 只"记得"手势里发生过的播放，
+   * 比单发 resume() 可靠；context 悬浮时调用也无害（排上队，解锁后生效） */
+  function acUnlock() {
     try {
       const c = ac(); if (!c) return;
+      const buf = c.createBuffer(1, Math.max(1, Math.floor(c.sampleRate * 0.01)), c.sampleRate);
+      const src = c.createBufferSource(); src.buffer = buf;
+      src.connect(c.destination); src.start();
+    } catch (e) { acDrop(); }
+  }
+  function sndClick() {
+    try {
+      const c = acReady(); if (!c) return;
       const o = c.createOscillator(), g = c.createGain();
       o.type = 'sine'; o.frequency.value = 980;
       g.gain.setValueAtTime(0.12, c.currentTime);
       g.gain.exponentialRampToValueAtTime(0.001, c.currentTime + 0.09);
       o.connect(g).connect(c.destination); o.start(); o.stop(c.currentTime + 0.1);
-    } catch (e) { AC = null; }                        // 发声失败=context 可疑：弃掉重建，且绝不打断调用方（如 btnDone 记事件）
+    } catch (e) { acDrop(); }                         // 发声失败=context 可疑：弃掉重建，且绝不打断调用方（如 btnDone 记事件）
   }
   function sndFlip() {
     try {
-      const c = ac(); if (!c) return;
-      const len = c.sampleRate * 0.14, buf = c.createBuffer(1, len, c.sampleRate), d = buf.getChannelData(0);
+      const c = acReady(); if (!c) return;
+      const len = Math.max(1, Math.floor(c.sampleRate * 0.14)), buf = c.createBuffer(1, len, c.sampleRate), d = buf.getChannelData(0); // 长度必须取整：浮点直传会炸掉整条发声链
       for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
       const src = c.createBufferSource(); src.buffer = buf;
       const f = c.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 900; f.Q.value = 0.8;
       const g = c.createGain(); g.gain.value = 0.16;
       src.connect(f).connect(g).connect(c.destination); src.start();
-    } catch (e) { AC = null; }
+    } catch (e) { acDrop(); }
   }
 
   /* ---------- 存储 ---------- */
@@ -329,13 +354,13 @@
     if (!S.browsePaper) return;
     // 比赛中重开：分离确认（WKWebView 没有 confirm 面板；同键二次确认会被连点误触）
     if (S.running && !S.finishT) { placeRestartRow(); $('#restartRow').style.display = 'flex'; return; }
-    ac(); // 借开卷手势解锁音频（resume 在 ac() 内部已带 catch）
+    acUnlock(); // 借开卷手势解锁音频（静音 buffer 预热，比单发 resume 可靠）
     startRace(S.browsePaper, level);
   };
   $('#btnRestartNo').onclick = () => { $('#restartRow').style.display = 'none'; };
   $('#btnRestartYes').onclick = () => {
     $('#restartRow').style.display = 'none';
-    ac();
+    acUnlock();
     startRace(S.browsePaper, level);
   };
 
@@ -416,7 +441,9 @@
   }
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') {
-      // 回到前台：比赛中且未暂停则确保上锁（串行链收敛，与在飞的 release 不再竞态）
+      // 回到前台：借机唤醒音频（后台会挂起 context；需要手势的平台会在下次点按时自愈）
+      acUnlock();
+      // 比赛中且未暂停则确保上锁（串行链收敛，与在飞的 release 不再竞态）
       if (S.running && !S.pausing) wakeLock(true);
       bridgeSync();
     } else if (S.running && !S.pausing && !S.finishT) doPause(true);
@@ -545,7 +572,7 @@
     if (!S.running || S.pausing) return;
     const cq = currentQ();
     if (!cq) return;
-    ac(); sndClick();
+    acUnlock(); sndClick();
     pushEv('done', cq);
     S.done[cq] = raceT();
     if (S.pointer < S.order.length && S.order[S.pointer] === cq) S.pointer++;
@@ -575,7 +602,7 @@
   }
   fastTap($('#btnResume'), () => {
     if (!S.pausing) return;
-    ac();
+    acUnlock();
     $('#abortBar').style.display = 'none'; $('#btnAbort').style.display = ''; // 继续=天然取消放弃
     S.pausedAccum += Date.now() - S.pauseStart;
     S.pausing = false;
@@ -855,7 +882,7 @@
   /* ---------- 结算图导出（canvas 手绘，无外部依赖） ---------- */
   $('#btnShot').onclick = () => {
     if (!S.lastResult) return;
-    ac();
+    acUnlock();
     $('#shotImg').src = renderShot(S.lastResult);
     $('#shotOv').classList.add('on');
   };
@@ -997,13 +1024,14 @@
   window.GP = {
     S, Ghost,
     warp(sec) { S.startWall -= sec * 1000; updateRaceUI(true); }, // 测试：快进到 sec 秒后
-    state() { return { t: raceT(), pointer: S.pointer, done: Object.keys(S.done).length, ghost: S.ghost && S.ghost.submit }; }
+    state() { return { t: raceT(), pointer: S.pointer, done: Object.keys(S.done).length, ghost: S.ghost && S.ghost.submit }; },
+    audio() { return { state: AC ? AC.state : 'none', silent: acSilent }; } // 调试把手：当前 context 状态与无声计数
   };
 
   /* ---------- 启动 ---------- */
   const bridgeSync = () => bridgeHealth().then(() => { flushPending(); pushOrphan(); }); // 体检→补传待存→备份孤儿存档
   addEventListener('hashchange', route);
-  addEventListener('pointerdown', () => ac(), true); // 兜底：任何真实点击都尝试唤醒音频（iOS 只认手势）
+  addEventListener('pointerdown', () => acUnlock(), true); // 兜底：任何真实点击都尝试唤醒音频（iOS 只认手势，静音 buffer 预热）
   bridgeSync();
   setInterval(bridgeSync, 15000);
   if (!tryRestore()) route();
