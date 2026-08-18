@@ -160,7 +160,9 @@
       } catch (e) { }
     }
     if (!S.lastResult) S.lastResult = lsGet('gp_last', null);
-    if (S.lastResult) S.browsePaper = paperById(S.lastResult.paper_id) || S.browsePaper; // "再来一卷"要拿得到卷
+    // 赛中不覆盖 browsePaper：否则首访结算页会把浏览卷换成旧结果的卷，
+    // 此时去赛前页点"开卷"，重开确认会启动错误的卷（正在赛的卷被顶掉）
+    if (S.lastResult && !S.running) S.browsePaper = paperById(S.lastResult.paper_id) || S.browsePaper; // "再来一卷"要拿得到卷
     return S.lastResult;
   }
 
@@ -358,6 +360,7 @@
   }
 
   function beginRace() {
+    S.raceGen = (S.raceGen || 0) + 1; // 作废倒计时令牌：正常开跑后 450ms 退场窗内的迟到点按不再二次 beginRace
     const cd = $('#countdown');
     cd.textContent = '开卷'; sndFlip();
     setTimeout(() => { cd.classList.remove('on'); }, 450);
@@ -555,22 +558,22 @@
     pushEv('finish');
     S.finishT = raceT();
     S.running = false;
-    S.paper = null; // 比赛结束：解锁赛卷，浏览可重新选卷（S.browsePaper 仍指向这场卷，供"再来一卷"）
     clearInterval(S.timer);
     wakeLock(false);
-    const sess = buildSession();
+    const sess = buildSession();            // 此时 S.paper 仍是赛卷
     S.lastResult = sess; lsSet('gp_last', sess);
     const rc = lsGet('gp_results', {}); rc[sess.paper_id] = sess; lsSet('gp_results', rc);
     saveSession(sess);
     // 战绩（与桥端 /list 同结构：last/lastId/lastDay 也要写——离线时卡片印章和日期才不倒退）
     const h = history();
-    const rec = h[S.paper.id] || { wins: 0, losses: 0, best: null };
+    const rec = h[sess.paper_id] || { wins: 0, losses: 0, best: null };
     if (sess.result.win) rec.wins++; else rec.losses++;
     const diff = sess.result.ghost_submit_sec - sess.result.your_total_sec;
     if (rec.best == null || diff > rec.best) rec.best = diff;
     rec.last = diff; rec.lastId = sess.id; rec.lastDay = dayLocal(new Date());
-    h[S.paper.id] = rec; lsSet(LS.history, h);
+    h[sess.paper_id] = rec; lsSet(LS.history, h);
     localStorage.removeItem(LS.active);
+    S.paper = null; // 全部结算收尾后才解锁赛卷（此前 buildSession/history 都读 S.paper）；S.browsePaper 仍指向这场卷供"再来一卷"
     renderResult(sess);
     go('result');
   }
@@ -620,7 +623,7 @@
     const win = sess.result.win;
     const diff = sess.result.ghost_submit_sec - sess.result.your_total_sec;
     const paper = paperById(sess.paper_id);
-    const lvName = { '0.85': '轻松', '1': '标准', '1.15': '挑战' }[String(sess.level)] || '标准';
+    const lvName = { '0.85': '挑战', '1': '标准', '1.15': '轻松' }[String(sess.level)] || '标准';
     $('#rSeal').textContent = win ? '胜' : '负';
     $('#rSeal').style.borderColor = win ? 'var(--red)' : 'var(--dim)';
     $('#rSeal').style.color = win ? 'var(--red)' : 'var(--dim)';
@@ -772,7 +775,7 @@
     x.fillStyle = INK; x.font = '700 40px ' + serif;
     x.fillText((win ? '赢 ' : '输 ') + fmt(diff), pad + 128, y + 26);
     const paper = paperById(sess.paper_id);
-    const lvName = { '0.85': '轻松', '1': '标准', '1.15': '挑战' }[String(sess.level)] || '标准';
+    const lvName = { '0.85': '挑战', '1': '标准', '1.15': '轻松' }[String(sess.level)] || '标准';
     x.fillStyle = DIM; x.font = '19px ' + serif;
     x.fillText(`${paper ? paper.title : sess.paper_id} · ${lvName}档 · ${sess.started_at ? dayLocal(new Date(sess.started_at)) : ''}`, pad + 128, y + 70);
     y += 116;
