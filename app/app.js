@@ -10,32 +10,41 @@
   const nowISO = () => new Date().toISOString();
   const dayLocal = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
 
-  /* ---------- 音效（WebAudio，无资产文件） ---------- */
-  let AC = null, acRetryAt = 0; // acRetryAt：创建失败后的冷却时间戳，几秒后允许重试——堵死"一次失败永久静音"
+  /* ---------- 音效（WebAudio，无资产文件） ----------
+   * 铁律：音效异常绝不外泄进游戏逻辑——所有发声整体 try/catch；
+   * 死掉的 context（state=closed）立即弃掉重建，不许"一次故障永久哑巴"。 */
+  let AC = null, acRetryAt = 0; // acRetryAt：构造失败后的冷却时间戳，5 秒后允许重试
   function ac() {
-    if (!AC && Date.now() >= acRetryAt) {              // 冷却期内不再反复造
-      try { AC = new (window.AudioContext || window.webkitAudioContext)(); }
-      catch (e) { acRetryAt = Date.now() + 5000; return null; }   // 失败：5 秒后再试
-    }
-    if (AC && (AC.state === 'suspended' || AC.state === 'interrupted')) AC.resume(); // iOS 打断会挂起，借手势恢复（interrupted 是 Safari 专有态）
-    return AC;
+    try {
+      if (AC && AC.state === 'closed') AC = null;    // 死 context：弃掉，下一步重建
+      if (!AC && Date.now() >= acRetryAt) {          // 冷却期内不再反复造
+        try { AC = new (window.AudioContext || window.webkitAudioContext)(); }
+        catch (e) { acRetryAt = Date.now() + 5000; return null; }
+      }
+      if (AC && (AC.state === 'suspended' || AC.state === 'interrupted')) AC.resume().catch(() => { }); // iOS 打断会挂起，借手势恢复（interrupted 是 Safari 专有态）
+      return AC;
+    } catch (e) { return null; }
   }
   function sndClick() {
-    const c = ac(); if (!c) return;
-    const o = c.createOscillator(), g = c.createGain();
-    o.type = 'sine'; o.frequency.value = 980;
-    g.gain.setValueAtTime(0.12, c.currentTime);
-    g.gain.exponentialRampToValueAtTime(0.001, c.currentTime + 0.09);
-    o.connect(g).connect(c.destination); o.start(); o.stop(c.currentTime + 0.1);
+    try {
+      const c = ac(); if (!c) return;
+      const o = c.createOscillator(), g = c.createGain();
+      o.type = 'sine'; o.frequency.value = 980;
+      g.gain.setValueAtTime(0.12, c.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.001, c.currentTime + 0.09);
+      o.connect(g).connect(c.destination); o.start(); o.stop(c.currentTime + 0.1);
+    } catch (e) { AC = null; }                        // 发声失败=context 可疑：弃掉重建，且绝不打断调用方（如 btnDone 记事件）
   }
   function sndFlip() {
-    const c = ac(); if (!c) return;
-    const len = c.sampleRate * 0.14, buf = c.createBuffer(1, len, c.sampleRate), d = buf.getChannelData(0);
-    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
-    const src = c.createBufferSource(); src.buffer = buf;
-    const f = c.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 900; f.Q.value = 0.8;
-    const g = c.createGain(); g.gain.value = 0.16;
-    src.connect(f).connect(g).connect(c.destination); src.start();
+    try {
+      const c = ac(); if (!c) return;
+      const len = c.sampleRate * 0.14, buf = c.createBuffer(1, len, c.sampleRate), d = buf.getChannelData(0);
+      for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
+      const src = c.createBufferSource(); src.buffer = buf;
+      const f = c.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 900; f.Q.value = 0.8;
+      const g = c.createGain(); g.gain.value = 0.16;
+      src.connect(f).connect(g).connect(c.destination); src.start();
+    } catch (e) { AC = null; }
   }
 
   /* ---------- 存储 ---------- */
@@ -320,13 +329,13 @@
     if (!S.browsePaper) return;
     // 比赛中重开：分离确认（WKWebView 没有 confirm 面板；同键二次确认会被连点误触）
     if (S.running && !S.finishT) { placeRestartRow(); $('#restartRow').style.display = 'flex'; return; }
-    ac(); if (AC && AC.state === 'suspended') AC.resume(); // 借开卷手势解锁音频
+    ac(); // 借开卷手势解锁音频（resume 在 ac() 内部已带 catch）
     startRace(S.browsePaper, level);
   };
   $('#btnRestartNo').onclick = () => { $('#restartRow').style.display = 'none'; };
   $('#btnRestartYes').onclick = () => {
     $('#restartRow').style.display = 'none';
-    ac(); if (AC && AC.state === 'suspended') AC.resume();
+    ac();
     startRace(S.browsePaper, level);
   };
 
@@ -363,11 +372,12 @@
   function beginRace() {
     S.raceGen = (S.raceGen || 0) + 1; // 作废倒计时令牌：正常开跑后 450ms 退场窗内的迟到点按不再二次 beginRace
     const cd = $('#countdown');
-    cd.textContent = '开卷'; sndFlip();
+    cd.textContent = '开卷';
     setTimeout(() => { cd.classList.remove('on'); }, 450);
-    S.starting = false;
+    S.starting = false;             // 关键状态先行：音效/遮罩等外围动作出任何错都挡不住开赛
     S.startWall = Date.now(); S.running = true;
     pushEv('start');
+    sndFlip();                      // 音效放状态之后（sndFlip 自身也吞异常，双保险）
     S.glimpseAt = 20 + S.glimpseRng() * 40; // 第一瞥稍早
     S.timer = setInterval(tick, 250);
     wakeLock(true);
@@ -377,23 +387,36 @@
     if (document.visibilityState === 'hidden') doPause(true);
   }
 
-  /* wakeLock */
-  let wl = null;
-  async function wakeLock(on) {
+  /* wakeLock —— 意图态 + 串行执行 + 赛中巡检：比赛中绝不灭屏
+   * 旧实现的竞态：切后台 release() 还在飞行中就切回来，wakeLock(true) 见
+   * released===false 误判"已有锁"直接返回 → release 落定后裸奔熄屏。
+   * 现在：所有操作进同一条 promise 链按序收敛，快速 暂停→继续 时释放干脆不发生；
+   * tick 里再巡检兜底——锁被系统收回（来电/分屏等）2 秒内自动补回。 */
+  let wl = null, wlChain = Promise.resolve(), wlLastTry = 0;
+  const wlHeld = () => !!(wl && wl.released === false);
+  function wakeLock(on) { wlChain = wlChain.then(() => wlApply(on)).catch(() => { }); }
+  async function wlApply(on) {
+    if (!('wakeLock' in navigator)) return;
     try {
       if (on) {
-        if ('wakeLock' in navigator) {
-          if (wl && wl.released === false) return;   // 已有生效锁：不重复 request（重复会吞原有同屏保活锁）
-          wl = await navigator.wakeLock.request('screen');
-        }
+        if (wlHeld()) return;                                        // 已有生效锁：不重复 request
+        if (wl) { try { await wl.release(); } catch (e) { } wl = null; } // 持过期锁先弃再请
+        wl = await navigator.wakeLock.request('screen');
+        wlLastTry = Date.now();
       } else if (wl) {
-        await wl.release(); wl = null;                // release 后置 null：旧锁对象已过期，不能再碰
+        await wl.release(); wl = null;                               // release 后置 null：旧锁对象已过期，不能再碰
       }
-    } catch (e) { if (on) wl = null; }               // request 失败：清引用，下次可重试
+    } catch (e) { wl = null; if (on) wlLastTry = Date.now(); }       // request 失败：清引用，巡检会重试
+  }
+  function wlEnsure() {  // 赛中巡检：锁一丢就补（节流 2s，防 request 持续失败时刷爆）
+    if (S.running && !S.pausing && !S.finishT && !wlHeld() && Date.now() - wlLastTry > 2000) {
+      wlLastTry = Date.now();
+      wakeLock(true);
+    }
   }
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') {
-      // 回到前台：比赛中且未暂停则确保上锁（已有锁时 wakeLock(true) 会因 released!==false 直接返回，不重复请求）
+      // 回到前台：比赛中且未暂停则确保上锁（串行链收敛，与在飞的 release 不再竞态）
       if (S.running && !S.pausing) wakeLock(true);
       bridgeSync();
     } else if (S.running && !S.pausing && !S.finishT) doPause(true);
@@ -500,6 +523,7 @@
 
   function tick() {
     if (!S.running || S.pausing) return;
+    wlEnsure(); // 保活巡检：比赛中锁丢了 2 秒内自动补回（灭屏防线）
     updateRaceUI(false);
   }
 
