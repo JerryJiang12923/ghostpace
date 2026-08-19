@@ -311,7 +311,7 @@
       i.style.height = Math.max(12, q.pred_sec / mx * 100) + '%';
       if (q.difficulty === 'hard') i.className = 'hard';
       if (q.pred_sec > 150) i.classList.add('big');
-      i.title = `第${q.n}题 ${fmt(q.pred_sec)}`;
+      i.title = `${qLabel(p, q.n) ?? `第${q.n}题`} ${fmt(q.pred_sec)}`;
       bars.appendChild(i);
     });
   }
@@ -523,7 +523,8 @@
       } else {
         // 在制时长已超该题预估 2 倍 → 考场里你早注意到 ta 停笔了：如实说"卡住"（正常波动极少越过 2 倍）
         const stuckHint = wk && (t - wk.from) > (predOf[wk.q] || 0) * 2 ? '卡在' : '在';
-        $('#glimpseTxt').innerHTML = `余光一瞥 · 幽灵${stuckHint} <b>第 ${dispQ} 题附近</b>`;
+        const dqLabel = qLabel(S.paper, dispQ); // 无 label 时文案与旧版逐字一致（"第 N 题附近"）
+        $('#glimpseTxt').innerHTML = `余光一瞥 · 幽灵${stuckHint} <b>${dqLabel ? dqLabel + ' 附近' : `第 ${dispQ} 题附近`}</b>`;
       }
       $('#glimpseAge').textContent = '刚刚瞥见';
       // 领先/落后：完成数 + 在制题进度折算（已耗时÷(预估×1.3)，钳到 0.9——刻意悲观：永远给"还没写完"
@@ -547,12 +548,14 @@
     if (cq) {
       const q = S.paper.questions.find(x => x.n === cq);
       const over = curEl > 2.5 * q.pred_sec * S.level; // 按累计投入算（暂停不清零，跳题补做两段合并）
-      $('#qno').innerHTML = `${cq}<small> / ${n}</small>`;
+      const nm = q.label ?? cq; // 有卷面显示名就显示名，无则照旧显示内部题号
+      $('#qno').classList.toggle('long', String(nm).length >= 4); // 长名降字号防溢出（见 style.css）
+      $('#qno').innerHTML = `${nm}<small> / ${n}</small>`;
       $('#qtype').innerHTML = `${typeName(q.type)} · 预估 <b class="num">${fmt(q.pred_sec * S.level)}</b>${q.difficulty === 'hard' ? ' · 难点' : ''}${over ? ' · <b style="color:var(--red-hi)">已超预估，考虑跳题</b>' : ''}`;
       const nq = nextAfter(cq);
       const catchup = S.pointer >= S.order.length;
       $('#btnDoneSub').textContent = (catchup ? `补做中 · 还剩 ${S.skipped.length} 题 · ` : '') +
-        (nq ? `下一题：第${nq}题 · ${typeName(S.paper.questions.find(x => x.n === nq).type)}` : '这是最后一题');
+        (nq ? `下一题：${qLabel(S.paper, nq) ?? `第${nq}题`} · ${typeName(S.paper.questions.find(x => x.n === nq).type)}` : '这是最后一题');
     }
   }
   function nextAfter(cq) {
@@ -560,6 +563,10 @@
     return rest.length ? rest[0] : null;
   }
   function typeName(t) { return { choice: '选择', multi: '多选', fill: '填空', solve: '解答', reading: '阅读', cloze: '完形', writing: '作文', other: '其他' }[t] || '题目'; }
+  /* 显示名：n 是唯一内部键（事件流/幽灵/存档/领先 ETA 全用它）；label 是卷面可选显示名，
+     用于按板块组卷、每板块内部从 1 重新编号的卷子（label 写"板块·题号"，如 "一·3"/"二·1"）。
+     21(3) 那种小题仍整题录成第 21 题，不用 label。无 label 的卷子一切照旧。返回 null = 无 label，回落内部题号。 */
+  function qLabel(paper, n) { const q = paper && paper.questions.find(x => x.n === n); return (q && q.label) ? q.label : null; }
 
   function tick() {
     if (!S.running || S.pausing) return;
@@ -674,7 +681,9 @@
     for (const e of S.events) {
       if (e.ev === 'done') {
         const q = S.paper.questions.find(x => x.n === e.q);
-        per.push({ n: e.q, pred_sec: Math.round(q.pred_sec * S.level), actual_sec: Math.round(acc[e.q] || 0) });
+        const item = { n: e.q, pred_sec: Math.round(q.pred_sec * S.level), actual_sec: Math.round(acc[e.q] || 0) };
+        if (q.label) item.label = q.label; // 显示名快照：之后卷子 label 再改，旧场次结算/导出不漂移
+        per.push(item);
       }
     }
     return {
@@ -711,7 +720,7 @@
       const row = document.createElement('div');
       row.className = 'qr';
       const slow = r.actual_sec > r.pred_sec * 1.4;
-      row.innerHTML = `<span class="n num">${r.n}</span>
+      row.innerHTML = `<span class="n num">${r.label ?? qLabel(paper, r.n) ?? r.n}</span>
         <div class="bars">
           <div class="bar pred" style="width:${r.pred_sec / mx * 100}%"></div>
           <div class="bar act${slow ? ' slow' : ''}" style="width:${r.actual_sec / mx * 100}%"></div>
@@ -1002,13 +1011,18 @@
     // 时间栏宽度按最长文本实测量出，条区动态度让——双位数分钟不再被条尾遮字
     x.font = '15px ' + mono;
     const tColW = Math.max(...rows.map(r => x.measureText(fmt(r.pred_sec) + ' / ' + fmt(r.actual_sec)).width));
-    const barMaxW = W - pad * 2 - 60 - tColW;
+    // 题号列同款实测：有卷面 label 就显示 label；无 label 时两位数以内的数字量宽 < 44，
+    // 列宽钳在 44 = 与旧版硬编码几何完全一致
+    x.font = '16px ' + mono;
+    const qName = r => String(r.label ?? qLabel(paper, r.n) ?? r.n);
+    const nColW = Math.max(44, ...rows.map(r => x.measureText(qName(r)).width + 10));
+    const barMaxW = W - pad * 2 - nColW - 16 - tColW;
     rows.forEach(r => {
       x.fillStyle = DIM; x.font = '16px ' + mono;
-      x.fillText(String(r.n), pad, y + 16);
-      x.fillStyle = '#3a3123'; rr(pad + 44, y + 4, Math.max(2, r.pred_sec / mx * barMaxW), 7, 3); x.fill();
+      x.fillText(qName(r), pad, y + 16);
+      x.fillStyle = '#3a3123'; rr(pad + nColW, y + 4, Math.max(2, r.pred_sec / mx * barMaxW), 7, 3); x.fill();
       x.fillStyle = r.actual_sec > r.pred_sec * 1.4 ? RED : GOLD;
-      rr(pad + 44, y + 17, Math.max(2, r.actual_sec / mx * barMaxW), 7, 3); x.fill();
+      rr(pad + nColW, y + 17, Math.max(2, r.actual_sec / mx * barMaxW), 7, 3); x.fill();
       x.fillStyle = FAINT; x.font = '15px ' + mono; x.textAlign = 'right';
       x.fillText(fmt(r.pred_sec) + ' / ' + fmt(r.actual_sec), W - pad, y + 16);
       x.textAlign = 'left';

@@ -97,6 +97,7 @@ body{background:var(--bg);color:var(--ink);font-family:"Songti SC","STSongti-SC-
 .behind.even::before{content:"≈ "}
 .race-mid{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:80px}
 .race-mid .qno{font-size:52px;letter-spacing:.06em}
+.race-mid .qno.long{font-size:36px} /* 卷面 label（如 "一·3"）比纯数字长，降字号防溢出 */
 .race-mid .qno small{font-size:16px;color:var(--dim);letter-spacing:.2em;margin-left:8px}
 .race-mid .qtype{margin-top:10px;font-size:12px;color:var(--dim)}
 .race-mid .qtype b{color:var(--gold);font-weight:400}
@@ -133,7 +134,7 @@ body{background:var(--bg);color:var(--ink);font-family:"Songti SC","STSongti-SC-
 .qreview{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px;margin-bottom:14px}
 .qreview .lbl{font-size:11px;color:var(--faint);letter-spacing:.25em;margin-bottom:10px}
 .qr{display:flex;align-items:center;gap:10px;padding:4px 0;font-size:12px}
-.qr .n{width:26px;color:var(--dim)}
+.qr .n{min-width:26px;white-space:nowrap;color:var(--dim)} /* 纯数字时 26px 与旧版一致；label（如 "一·3"）自动撑宽 */
 .qr .bars{flex:1;display:flex;flex-direction:column;gap:3px}
 .qr .bar{height:5px;border-radius:3px}
 .qr .bar.pred{background:#3a3123}
@@ -163,6 +164,7 @@ body{background:var(--bg);color:var(--ink);font-family:"Songti SC","STSongti-SC-
   #s-race .behind{grid-column:1;grid-row:4;margin-top:4px}
   #s-race .race-mid{grid-column:1;grid-row:5;justify-content:flex-start;padding:8px 0 4px;min-height:0}
   #s-race .race-mid .qno{font-size:34px}
+  #s-race .race-mid .qno.long{font-size:24px}
   #s-race .race-mid .qtype{margin-top:4px}
   #s-race .done-btn{grid-column:2;grid-row:1/6;height:auto;min-height:0;font-size:22px;letter-spacing:.2em;margin-bottom:0}
   #s-race .race-sub{grid-column:2;grid-row:6;margin-top:8px}
