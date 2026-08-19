@@ -548,10 +548,9 @@
     if (cq) {
       const q = S.paper.questions.find(x => x.n === cq);
       const over = curEl > 2.5 * q.pred_sec * S.level; // 按累计投入算（暂停不清零，跳题补做两段合并）
-      const nm = q.label ?? cq; // 有卷面显示名就显示名，无则照旧显示内部题号
-      $('#qno').classList.toggle('long', String(nm).length >= 4); // 长名降字号防溢出（见 style.css）
-      $('#qno').innerHTML = `${nm}<small> / ${n}</small>`;
-      $('#qtype').innerHTML = `${typeName(q.type)} · 预估 <b class="num">${fmt(q.pred_sec * S.level)}</b>${q.difficulty === 'hard' ? ' · 难点' : ''}${over ? ' · <b style="color:var(--red-hi)">已超预估，考虑跳题</b>' : ''}`;
+      // 大数字恒为内部题号（与"/ 总题数"配套成一组读数）；卷面 label 放底行小字开头
+      $('#qno').innerHTML = `${cq}<small> / ${n}</small>`;
+      $('#qtype').innerHTML = `${q.label ? `卷面 <b class="num">${q.label}</b> · ` : ''}${typeName(q.type)} · 预估 <b class="num">${fmt(q.pred_sec * S.level)}</b>${q.difficulty === 'hard' ? ' · 难点' : ''}${over ? ' · <b style="color:var(--red-hi)">已超预估，考虑跳题</b>' : ''}`;
       const nq = nextAfter(cq);
       const catchup = S.pointer >= S.order.length;
       $('#btnDoneSub').textContent = (catchup ? `补做中 · 还剩 ${S.skipped.length} 题 · ` : '') +
