@@ -108,6 +108,24 @@ window.Ghost = (function () {
     return { events, doneList, submit: t, writeEnd, work };
   }
 
+  /* t 时刻幽灵的"卷面前沿"位置（0~1）：赛道刻度按卷面题号排，标记就只说题号的语言——
+   * 只认主轴窗口（work 数组前 totalQ 个，卷面顺序），单调不回跳：跳题时前沿随翻页照推，
+   * 补做/回改/检查期冻结在最后一个主轴窗口末端（翻回去改不改变"做到第几题"）。
+   * 首窗开启前（browse 期）为 0；段内保留 0.85 留白；交卷归 1 由调用方处理。
+   * "ta 正在写哪题"（含补做回哪题）仍由 workAt/徽章文案如实报，位置与标签各司其职 */
+  function frontPos(g, totalQ, t) {
+    const w = g.work || [];
+    const m = Math.min(totalQ, w.length);
+    let cur = -1;
+    for (let i = 0; i < m; i++) {
+      if (t >= w[i].from) cur = i; else break; // 主轴窗口 from 严格递增，可早停
+    }
+    if (cur < 0) return 0;
+    const win = w[cur];
+    const f = t >= win.to ? 1 : Math.min(1, Math.max(0, (t - win.from) / Math.max(1, win.to - win.from)));
+    return (win.q - 1 + f * 0.85) / totalQ;
+  }
+
   /* t 时刻幽灵真正身处的题目窗口 {q, from, to}；browse/停顿/回改/检查的间隙返回 null。
    * 卡壳窗 = 整段死磕时间，补做窗 = 回头重做那段——显示层据此标注真实题号，
    * 不再把"下一件完工的事"错当成"正在做的事" */
@@ -158,5 +176,5 @@ window.Ghost = (function () {
     return out;
   }
 
-  return { build, positionAt, timeOfDone, workAt, replayNotes, P };
+  return { build, positionAt, frontPos, timeOfDone, workAt, replayNotes, P };
 })();

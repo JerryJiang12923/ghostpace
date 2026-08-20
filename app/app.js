@@ -452,11 +452,15 @@
   /* ---------- 赛道 UI ---------- */
   function buildTrack() {
     const tk = $('#ticks'); tk.innerHTML = '';
-    const n = S.paper.questions.length;
-    let prevType = S.paper.questions[0].type;
-    S.paper.questions.forEach((q, i) => {
+    const qs = S.paper.questions;
+    // 长刻度 = 板块边界：有 label 的题按 label 的板块前缀分段（板块卷块内混题型，
+    // 题型变化不再是板块边界）；无 label 的题照旧按题型分段（题型排版卷两者重合）
+    const secOf = q => (q.label && q.label.replace(/[\d()（）\s]+$/, '')) || q.type;
+    let prev = secOf(qs[0]);
+    qs.forEach(q => {
       const el = document.createElement('i');
-      if (q.type !== prevType) { el.className = 'sec'; prevType = q.type; }
+      const s = secOf(q);
+      if (s !== prev) { el.className = 'sec'; prev = s; }
       tk.appendChild(el);
     });
   }
@@ -511,8 +515,9 @@
         const pace = (tDone + predTotal / 3) / (predDone + predTotal / 3); // 收缩向计划配速1.0：见得少时别太信观测
         $('#ghostEta').textContent = fmt(t + (predTotal - predDone - predWip) * pace);
       }
-      // 幽灵标记：优先真实工作窗口（卡壳窗内位置不漂、补做真的往回走），无窗口退回完工插值
-      const mkPos = wk ? (wk.q - 1 + wkFrac * 0.85) / n : (dispDone + gpos.frac) / n;
+      // 幽灵标记 = 卷面题号前沿（方案A）：单调不回跳——跳题时前沿随翻页照推，补做/回改冻结前沿
+      // （翻回去改不改变"做到第几题"）。ta 此刻在写哪题（含补做回哪题）仍由徽章/文案按工作窗口如实报
+      const mkPos = gpos.submitted ? 1 : Ghost.frontPos(S.ghost, n, t);
       $('#mkGhost').style.left = (mkPos * 100) + '%';
       $('#mkGhostQ').textContent = gpos.submitted ? '✓' : dispQ;
       // 状态行
