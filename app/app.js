@@ -519,7 +519,7 @@
       // （翻回去改不改变"做到第几题"）。ta 此刻在写哪题（含补做回哪题）仍由徽章/文案按工作窗口如实报
       const mkPos = gpos.submitted ? 1 : Ghost.frontPos(S.ghost, n, t);
       $('#mkGhost').style.left = (mkPos * 100) + '%';
-      $('#mkGhostQ').textContent = gpos.submitted ? '✓' : dispQ;
+      $('#mkGhostQ').textContent = gpos.submitted ? '✓' : (qLabel(S.paper, dispQ) || dispQ); // 徽章=卷面显示名：板块卷上内部题号无处可对，与瞥见文案同口径
       // 状态行
       if (gpos.submitted) {
         $('#glimpseTxt').innerHTML = '幽灵 <b>已交卷</b>';
