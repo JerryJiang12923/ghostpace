@@ -47,6 +47,14 @@ class H(BaseHTTPRequestHandler):
                     except Exception:
                         pass
             body = json.dumps(rows, ensure_ascii=False).encode()
+        elif self.path.startswith('/load'):
+            from urllib.parse import urlparse, parse_qs
+            rel = (parse_qs(urlparse(self.path).query).get('relpath') or [''])[0]
+            if not SAFE.match(rel):
+                body = b'null'
+            else:
+                p = os.path.join(DATA, rel)
+                body = open(p, 'rb').read() if os.path.isfile(p) else b'null'
         elif self.path == '/latest':
             sdir = os.path.join(DATA, 'sessions')
             files = sorted(f for f in os.listdir(sdir) if f.endswith('.json')) if os.path.isdir(sdir) else []

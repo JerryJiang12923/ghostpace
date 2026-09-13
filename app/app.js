@@ -809,6 +809,8 @@
   async function pushOrphan() {
     const o = lsGet(LS.orphan, null);
     if (!o || !bridgeOn) return;
+    // 本地存档已不兼容当前卷（卷子被改过）：agent 可能已修好 bridge 备份，不再覆盖
+    if (!archiveCompatible(o)) return;
     try {
       await fetch(BRIDGE + '/save', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -826,9 +828,22 @@
       `<b>请在聊天里告诉 agent，它会尽可能修复这场存档</b>（桥在线时已自动备份到 data/profile/）。修好后回来点"再试恢复"。`;
     bar.style.display = '';
   }
-  $('#orphanRetry').onclick = () => {
-    const o = lsGet(LS.orphan, null);
+  $('#orphanRetry').onclick = async () => {
+    let o = lsGet(LS.orphan, null);
     if (!o) return;
+    // 本地存档不兼容时，尝试从 bridge 拉取 agent 修好的备份
+    if (!archiveCompatible(o) && bridgeOn) {
+      try {
+        const r = await fetch(BRIDGE + '/load?relpath=profile/active_orphan_' + o.paper_id + '_' + (o.startWall || 0) + '.json');
+        if (r.ok) {
+          const fixed = await r.json();
+          if (fixed && archiveCompatible(fixed)) {
+            lsSet(LS.orphan, fixed);
+            o = fixed;
+          }
+        }
+      } catch (e) { }
+    }
     if (archiveCompatible(o)) {
       lsSet(LS.active, o); localStorage.removeItem(LS.orphan);
       renderOrphanBar(); // 孤儿已清，先收条再进赛道
